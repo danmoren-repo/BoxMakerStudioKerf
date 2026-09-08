@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BoxMaker — self-checks</title>
+  <style>
+    body { font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 2rem; }
+    h1 { font-size: 1.2rem; }
+    li { margin: .15rem 0; }
+    .ok { color: #157f3b; }
+    .fail { color: #c0392b; font-weight: 700; }
+    #summary { margin: 1rem 0; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>BoxMaker — self-checks</h1>
+  <div id="summary">corriendo…</div>
+  <ul id="results"></ul>
+
+  <script type="module">
+    import { computeSegments, edgeProfile, jointIntervals } from './js/core/finger-joint.js';
+    import { panelOutline } from './js/core/panel.js';
+    import { boundingBox } from './js/core/geometry.js';
+    import { buildBox, autoTabWidth } from './js/boxes/simple-box.js';
+
+    const results = [];
+    const TOL = 1e-6;
+    const near = (a, b, tol = TOL) => Math.abs(a - b) <= tol;
+    const assert = (cond, msg) => { if (!cond) throw new Error(msg); };
+    const check = (name, fn) => {
+      try { fn(); results.push({ name, ok: true }); }
+      catch (e) { results.push({ name, ok: false, msg: e.message }); }
+    };
+
+    const BASE = {
+      length: 200, width: 150, height: 80,
+      thickness: 3, kerf: 0.15, tabWidth: 18,
+      dimensionMode: 'outer',
+    };
+    const box = buildBox(BASE);
+    const panel = (id) => box.panels.find((p) => p.id === id);
+    const t = BASE.thickness;
+
+    check('buildBox con parámetros válidos no produce errores', () => {
+      assert(box.errors.length === 0, box.errors.join(' | '));
+      assert(box.panels.length === 6, 'esperaba 6 paneles');
+    });
+
+    check('computeSegments: siempre impar, >= 3, y reconstruye el span', () => {
+      for (const span of [80, 194, 144, 10, 7.5, 1000]) {
+        for (const tab of [18, 9, 3, 50]) {
+          const { count, width } = computeSegments(span, tab);
+          assert(count % 2 === 1, `count par para span ${span}, tab ${tab}`);
+          assert(count >= 3, `count < 3 para span ${span}, tab ${tab}`);
+          assert(near(count * width, span), `los segmentos no suman el span ${span}`);
+        }
+      }
+    });
+
+    check('el patrón de la junta es palindrómico (aristas espejadas encajan)', () => {
+      for (const span of [80, 194, 144, 33]) {
+        const intervals = jointIntervals({ jointSpan: span, targetTabWidth: 18 });
+        const mirrored = intervals.map(([a, b]) => [span - b, span - a]).reverse();
+        intervals.forEach((iv, i) => {
+          assert(near(iv[0], mirrored[i][0]) && near(iv[1], mirrored[i][1]),
+            `patrón no simétrico en span ${span}`);
+        });
+      }
+    });
+
+    check('cada par de aristas macho/hembra comparte segmentación y géneros opuestos', () => {
+      const pairs = [
+        ['eje Z', panel('front').edges.left, panel('left').edges.left, 0],
+        ['eje Z', panel('back').edges.right, panel('right').edges.right, 0],
+        ['eje X', panel('front').edges.top, panel('top').edges.top, t],
+        ['eje X', panel('back').edges.bottom, panel('bottom').edges.bottom, t],
+        ['eje Y', panel('left').edges.top, panel('top').edges.left, 0],
+        ['eje Y', panel('right').edges.bottom, panel('bottom').edges.right, 0],
+      ];
+      for (const [axis, female, male, offset] of pairs) {
+        assert(female.gender === 'female' && male.gender === 'male', `${axis}: géneros mal asignados`);
+        const spanF = female.jointSpan ?? null;
+        const spanM = male.jointSpan ?? null;
+        assert(spanF === null || spanM === null || near(spanF, spanM),
+          `${axis}: spans distintos (${spanF} vs ${spanM})`);
+      }
+    });
+
+    check('ninguna pieza tiene material más fino que el kerf (nada incortable)', () => {
+      for (const p of box.panels) {
+        for (let i = 0; i < p.points.length; i++) {
+          const a = p.points[i];
+          const b = p.points[(i + 1) % p.points.length];
+          const len = Math.hypot(b.x - a.x, b.y - a.y);
+          assert(len >= BASE.kerf - TOL,
+            `${p.id}: segmento de ${len.toFixed(3)} mm en (${a.x.toFixed(3)},${a.y.toFixed(3)}) — el láser se lo come`);
+        }
+      }
+    });
+
+    check('ningún contorno se dobla sobre sí mismo (líneas cortadas dos veces)', () => {
+      const configs = [
+        BASE,
+        { ...BASE, kerf: 0.4, tabWidth: 25, length: 250, width: 200, height: 100 },
+        { ...BASE, thickness: 6, tabWidth: 20 },
+      ];
+      for (const cfg of configs) {
+        const result = buildBox(cfg);
+        if (result.errors.length > 0) continue;
+        for (const p of result.panels) {
+          const pts = p.points, n = pts.length;
+          for (let i = 0; i < n; i++) {
+            const a = pts[(i - 1 + n) % n], b = pts[i], c = pts[(i + 1) % n];
+            const v1 = { x: b.x - a.x, y: b.y - a.y };
+            const v2 = { x: c.x - b.x, y: c.y - b.y };
+            const collinear = Math.abs(v1.x * v2.y - v1.y * v2.x) < 1e-6;
+            const reversing = v1.x * v2.x + v1.y * v2.y < -1e-6;
+            assert(!(collinear && reversing),
+              `${p.id} (t=${cfg.thickness}, kerf=${cfg.kerf}): el contorno retrocede sobre sí mismo en (${b.x.toFixed(2)},${b.y.toFixed(2)})`);
+          }
+        }
+      }
+    });
+
+    check('ninguna esquina queda colgando de un puente más fino que el kerf', () => {
+      // Si las dos aristas que concurren en una esquina son hembra, sus ranuras
+      // aíslan el bloque de la esquina: solo lo sujeta lo que sobra por dentro
+      // de la profundidad de la ranura. Si eso es menor que el kerf, la esquina
+      // se cae al cortar.
+      for (const cfg of [BASE, { ...BASE, kerf: 0.4, tabWidth: 25 }]) {
+        const result = buildBox(cfg);
+        if (result.errors.length > 0) continue;
+        for (const p of result.panels) {
+          const corners = [
+            { x: 0, y: 0, sx: 1, sy: 1, h: 'top', v: 'left' },
+            { x: p.width, y: 0, sx: -1, sy: 1, h: 'top', v: 'right' },
+            { x: p.width, y: p.height, sx: -1, sy: -1, h: 'bottom', v: 'right' },
+            { x: 0, y: p.height, sx: 1, sy: -1, h: 'bottom', v: 'left' },
+          ];
+          for (const c of corners) {
+            if (p.edges[c.h].gender !== 'female' || p.edges[c.v].gender !== 'female') continue;
+            const along = (fixedAxis, freeAxis, fixedValue, origin, sign) => {
+              let best = Infinity;
+              for (const q of p.points) {
+                if (Math.abs(q[fixedAxis] - fixedValue) > TOL) continue;
+                const d = (q[freeAxis] - origin) * sign;
+                if (d > TOL && d < best) best = d;
+              }
+              return best;
+            };
+            const offsetH = along('y', 'x', c.y, c.x, c.sx);
+            const offsetV = along('x', 'y', c.x, c.y, c.sy);
+            const bridge = Math.min(offsetH, offsetV) - cfg.thickness;
+            assert(bridge > cfg.kerf,
+              `${p.id} (kerf=${cfg.kerf}): la esquina (${c.x},${c.y}) queda sujeta por ${bridge.toFixed(3)} mm de material`);
+          }
+        }
+      }
+    });
+
+    check('las esquinas de front/back quedan macizas', () => {
+      for (const id of ['front', 'back']) {
+        const p = panel(id);
+        const corners = [[0, 0], [p.width, 0], [p.width, p.height], [0, p.height]];
+        for (const [cx, cy] of corners) {
+          assert(p.points.some((q) => near(q.x, cx) && near(q.y, cy)),
+            `${id}: falta el vértice de la esquina (${cx}, ${cy})`);
+          for (const q of p.points) {
+            if (near(q.x, cx) && near(q.y, cy)) continue;
+            assert(Math.max(Math.abs(q.x - cx), Math.abs(q.y - cy)) >= t - TOL,
+              `${id}: el punto (${q.x.toFixed(3)},${q.y.toFixed(3)}) invade la esquina (${cx}, ${cy})`);
+          }
+        }
+      }
+    });
+
+    check('las ranuras que tocan un borde llegan hasta el borde', () => {
+      for (const gender of ['female', 'male']) {
+        const profile = edgeProfile({
+          edgeLength: 100, gender, thickness: t, kerf: 0.2, targetTabWidth: 20,
+        });
+        assert(near(profile[1].u, 0),
+          `${gender}: la primera feature arranca en u=${profile[1].u}, debería tocar el borde`);
+        const last = profile[profile.length - 2];
+        assert(near(last.u, 100),
+          `${gender}: la última feature termina en u=${last.u}, debería tocar el borde`);
+      }
+    });
+
+    check('los tabs del macho caen exactamente en las ranuras de la hembra', () => {
+      // Lee las aristas reales de la caja, no una copia del modelo.
+      const edge = (id, side) => {
+        const p = panel(id);
+        const spec = p.edges[side];
+        const length = side === 'top' || side === 'bottom' ? p.width : p.height;
+        return { ...spec, jointStart: spec.jointStart ?? 0, jointSpan: spec.jointSpan ?? length };
+      };
+      const pairs = [
+        ['eje Z (front–left)', edge('front', 'left'), edge('left', 'left')],
+        ['eje X (front–top)', edge('front', 'top'), edge('top', 'top')],
+        ['eje Y (left–top)', edge('left', 'top'), edge('top', 'left')],
+      ];
+      for (const [name, female, male] of pairs) {
+        assert(female.gender === 'female' && male.gender === 'male', `${name}: géneros mal asignados`);
+        assert(near(female.jointSpan, male.jointSpan),
+          `${name}: spans distintos (${female.jointSpan} vs ${male.jointSpan})`);
+        const shift = female.jointStart - male.jointStart;
+        const f = jointIntervals({ ...female, targetTabWidth: BASE.tabWidth });
+        const m = jointIntervals({ ...male, targetTabWidth: BASE.tabWidth })
+          .map(([a, b]) => [a + shift, b + shift]);
+        assert(f.length === m.length, `${name}: distinto número de espigas`);
+        f.forEach((iv, i) => {
+          assert(near(iv[0], m[i][0]) && near(iv[1], m[i][1]), `${name}: espiga ${i} desalineada`);
+        });
+      }
+    });
+
+    check('kerf: el tab macho se dibuja un kerf más ancho y la ranura hembra un kerf más angosta', () => {
+      const common = { edgeLength: 80, thickness: t, kerf: 0.15, targetTabWidth: 18, jointSpan: 80 };
+      const { width } = computeSegments(80, 18);
+      const male = edgeProfile({ ...common, gender: 'male' });
+      const female = edgeProfile({ ...common, gender: 'female' });
+      // Segundo feature de cada perfil: interior, sin recorte en las esquinas.
+      const maleFeature = male.slice(5, 9);
+      const femaleFeature = female.slice(5, 9);
+      assert(near(maleFeature[3].u - maleFeature[0].u, width + 0.15),
+        `tab macho mide ${maleFeature[3].u - maleFeature[0].u}, esperaba ${width + 0.15}`);
+      assert(near(femaleFeature[3].u - femaleFeature[0].u, width - 0.15),
+        `ranura hembra mide ${femaleFeature[3].u - femaleFeature[0].u}, esperaba ${width - 0.15}`);
+      assert(near(maleFeature[1].v, t) && near(femaleFeature[1].v, -t), 'profundidad incorrecta');
+    });
+
+    check('el perfil empieza y termina en las esquinas, avanzando sin retroceder', () => {
+      for (const gender of ['male', 'female']) {
+        const profile = edgeProfile({
+          edgeLength: 80, gender, thickness: t, kerf: 0.15, targetTabWidth: 18,
+        });
+        assert(near(profile[0].u, 0) && near(profile[0].v, 0), `${gender}: no arranca en la esquina`);
+        const last = profile[profile.length - 1];
+        assert(near(last.u, 80) && near(last.v, 0), `${gender}: no termina en la esquina`);
+        for (let i = 1; i < profile.length; i++) {
+          assert(profile[i].u >= profile[i - 1].u - TOL, `${gender}: el perfil retrocede en u`);
+        }
+      }
+    });
+
+    check('las piezas cortadas reconstruyen una caja de 200 × 150 × 80 mm', () => {
+      const bb = (id) => boundingBox(panel(id).points);
+      const front = bb('front'), left = bb('left'), top = bb('top');
+      assert(near(front.width, 200) && near(front.height, 80), `front mide ${front.width} × ${front.height}`);
+      assert(near(left.width, 150) && near(left.height, 80), `left mide ${left.width} × ${left.height}`);
+      assert(near(top.width, 200) && near(top.height, 150), `top mide ${top.width} × ${top.height}`);
+      assert(near(box.outer.length, 200) && near(box.outer.width, 150) && near(box.outer.height, 80),
+        'dimensiones exteriores incorrectas');
+      assert(near(box.inner.length, 194) && near(box.inner.width, 144) && near(box.inner.height, 74),
+        'dimensiones interiores incorrectas');
+    });
+
+    check('modo "interiores": el espacio útil sale exacto', () => {
+      const inner = buildBox({ ...BASE, dimensionMode: 'inner' });
+      assert(inner.errors.length === 0, inner.errors.join(' | '));
+      assert(near(inner.inner.length, 200) && near(inner.inner.width, 150) && near(inner.inner.height, 80),
+        `interior real ${inner.inner.length} × ${inner.inner.width} × ${inner.inner.height}`);
+      assert(near(inner.outer.length, 206), 'exterior esperado 206 mm de largo');
+    });
+
+    check('el ancho de espiga automático respeta el mínimo de 3 segmentos', () => {
+      assert(near(autoTabWidth(BASE), 9), `esperaba 9 mm, obtuve ${autoTabWidth(BASE)}`);
+      const small = { ...BASE, length: 40, width: 40, height: 40, thickness: 6 };
+      const auto = autoTabWidth(small);
+      assert(auto <= Math.min(40, 28) / 3 + TOL, `${auto} mm no deja 3 segmentos en la arista más corta`);
+      assert(buildBox({ ...small, tabWidth: auto }).errors.length === 0, 'la caja chica debería ser válida con tab auto');
+    });
+
+    check('parámetros imposibles producen errores, no geometría rota', () => {
+      const cases = [
+        ['material más grueso que la caja', { ...BASE, length: 5, width: 5, thickness: 3 }],
+        ['kerf mayor que el grosor', { ...BASE, kerf: 4 }],
+        ['grosor cero', { ...BASE, thickness: 0 }],
+        ['dimensión negativa', { ...BASE, height: -10 }],
+      ];
+      for (const [name, params] of cases) {
+        const result = buildBox(params);
+        assert(result.errors.length > 0, `"${name}" debería producir error`);
+        assert(result.panels.length === 0, `"${name}" no debería devolver paneles`);
+      }
+    });
+
+    check('todos los paneles producen contornos cerrados y sin puntos duplicados', () => {
+      for (const p of box.panels) {
+        assert(p.points.length >= 8, `${p.id}: muy pocos puntos`);
+        for (let i = 1; i < p.points.length; i++) {
+          const a = p.points[i - 1], b = p.points[i];
+          assert(!(near(a.x, b.x) && near(a.y, b.y)), `${p.id}: punto duplicado en ${i}`);
+          assert(Number.isFinite(b.x) && Number.isFinite(b.y), `${p.id}: coordenada no numérica`);
+        }
+      }
+    });
+
+    check('barrido de parámetros: nada explota ni devuelve NaN', () => {
+      for (const thickness of [1.5, 3, 6, 9]) {
+        for (const kerf of [0, 0.1, 0.3]) {
+          for (const dims of [[60, 60, 60], [300, 200, 120], [500, 40, 40]]) {
+            const params = {
+              length: dims[0], width: dims[1], height: dims[2],
+              thickness, kerf, dimensionMode: 'outer',
+              tabWidth: autoTabWidth({ length: dims[0], width: dims[1], height: dims[2], thickness, dimensionMode: 'outer' }),
+            };
+            const result = buildBox(params);
+            if (result.errors.length > 0) continue;
+            for (const p of result.panels) {
+              for (const pt of p.points) {
+                assert(Number.isFinite(pt.x) && Number.isFinite(pt.y),
+                  `NaN con t=${thickness} k=${kerf} dims=${dims}`);
+              }
+            }
+          }
+        }
+      }
+    });
+
+    const failed = results.filter((r) => !r.ok);
+    document.getElementById('summary').textContent =
+      failed.length === 0
+        ? `✅ ${results.length}/${results.length} checks OK`
+        : `❌ ${failed.length} de ${results.length} checks fallaron`;
+    document.getElementById('results').innerHTML = results
+      .map((r) => `<li class="${r.ok ? 'ok' : 'fail'}">${r.ok ? '✔' : '✘'} ${r.name}${r.ok ? '' : ` — ${r.msg}`}</li>`)
+      .join('');
+    console.log(failed.length === 0 ? 'ALL CHECKS PASSED' : `FAILED: ${failed.map((f) => f.name).join(', ')}`);
+  </script>
+</body>
+</html>
