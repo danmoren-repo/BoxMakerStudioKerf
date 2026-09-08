@@ -26,6 +26,7 @@ Luego abre http://localhost:8000 en el navegador.
 | Ancho (mm) | 150 | Dimensión en Y. |
 | Alto (mm) | 80 | Dimensión en Z. |
 | Medidas: Exteriores / Interiores | Exteriores | "Exteriores" = la caja terminada mide esto por fuera. "Interiores" = el espacio útil dentro mide esto (BoxMaker suma el grosor del material a cada lado). |
+| Tapa: Con espigas / Plana | Con espigas | "Con espigas": la tapa encaja dentro como el resto de las piezas. "Plana": un rectángulo liso del tamaño exterior que se apoya sobre el canto de las paredes; el borde superior de las cuatro paredes queda recto y las paredes se acortan un grosor, así que el alto total y el espacio interior no cambian. La tapa plana no lleva nada que la sujete: se desliza si mueves la caja. |
 | Grosor del material (mm) | 3 | El espesor real de tu plancha (MDF, contrachapado, acrílico, etc.). |
 | Kerf (mm) | 0.15 | Es el ancho que se come el láser al cortar. Se calibra con un corte de prueba. Referencia orientativa: MDF 3 mm ≈ 0.10–0.20 mm, acrílico ≈ 0.15–0.25 mm. Debe ser siempre menor que el grosor del material. |
 | Auto (ancho de espiga) | activado | Cuando está activo, calcula el ancho de la espiga (tab) por ti con la regla de abajo. Desactívalo para fijar un valor manual. |
@@ -54,7 +55,7 @@ Está separado así para que un futuro tipo de caja (por ejemplo una con tapa de
 
 ## Verificación
 
-Con el servidor local corriendo, abre http://localhost:8000/test.html. Es una página de self-checks que corre en el navegador y muestra una lista con cada prueba en verde (✔) o rojo (✘). Actualmente son **18 checks**: cubren desde que `buildBox` no produzca errores con parámetros válidos, la segmentación de juntas, que las espigas macho encajen exactamente en las ranuras hembra, el efecto del kerf, el modo de medidas interiores, el ancho de espiga automático, hasta un barrido de combinaciones de parámetros para asegurarse de que nada produzca `NaN`.
+Con el servidor local corriendo, abre http://localhost:8000/test.html. Es una página de self-checks que corre en el navegador y muestra una lista con cada prueba en verde (✔) o rojo (✘). Actualmente son **21 checks** (los de geometría corren sobre los dos tipos de tapa): cubren desde que `buildBox` no produzca errores con parámetros válidos, la segmentación de juntas, que las espigas macho encajen exactamente en las ranuras hembra, el efecto del kerf, el modo de medidas interiores, el ancho de espiga automático, hasta un barrido de combinaciones de parámetros para asegurarse de que nada produzca `NaN`.
 
 Cinco de esos checks vigilan específicamente las esquinas, que es donde este tipo de generador se rompe: que ninguna pieza tenga material más fino que el kerf (sería incortable), que las esquinas de las tapas frontales queden macizas, que una ranura que llega al borde lo haga sin dejar una lengüeta de medio kerf, que ningún contorno se doble sobre sí mismo (una línea recorrida dos veces = el láser cortando dos veces sobre el mismo sitio), y que ninguna esquina quede sujeta por un puente de material más fino que el kerf (se caería al cortar).
 

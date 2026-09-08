@@ -38,6 +38,7 @@
       thickness: 3, kerf: 0.15, tabWidth: 18,
       dimensionMode: 'outer',
     };
+    const FLAT = { ...BASE, lidType: 'flat' };
     const box = buildBox(BASE);
     const panel = (id) => box.panels.find((p) => p.id === id);
     const t = BASE.thickness;
@@ -88,13 +89,15 @@
     });
 
     check('ninguna pieza tiene material más fino que el kerf (nada incortable)', () => {
-      for (const p of box.panels) {
-        for (let i = 0; i < p.points.length; i++) {
-          const a = p.points[i];
-          const b = p.points[(i + 1) % p.points.length];
-          const len = Math.hypot(b.x - a.x, b.y - a.y);
-          assert(len >= BASE.kerf - TOL,
-            `${p.id}: segmento de ${len.toFixed(3)} mm en (${a.x.toFixed(3)},${a.y.toFixed(3)}) — el láser se lo come`);
+      for (const cfg of [BASE, FLAT]) {
+        for (const p of buildBox(cfg).panels) {
+          for (let i = 0; i < p.points.length; i++) {
+            const a = p.points[i];
+            const b = p.points[(i + 1) % p.points.length];
+            const len = Math.hypot(b.x - a.x, b.y - a.y);
+            assert(len >= cfg.kerf - TOL,
+              `${p.id} (tapa ${cfg.lidType ?? 'finger'}): segmento de ${len.toFixed(3)} mm en (${a.x.toFixed(3)},${a.y.toFixed(3)}) — el láser se lo come`);
+          }
         }
       }
     });
@@ -104,6 +107,8 @@
         BASE,
         { ...BASE, kerf: 0.4, tabWidth: 25, length: 250, width: 200, height: 100 },
         { ...BASE, thickness: 6, tabWidth: 20 },
+        FLAT,
+        { ...FLAT, kerf: 0.4, tabWidth: 25, length: 250, width: 200, height: 100 },
       ];
       for (const cfg of configs) {
         const result = buildBox(cfg);
@@ -128,7 +133,7 @@
       // aíslan el bloque de la esquina: solo lo sujeta lo que sobra por dentro
       // de la profundidad de la ranura. Si eso es menor que el kerf, la esquina
       // se cae al cortar.
-      for (const cfg of [BASE, { ...BASE, kerf: 0.4, tabWidth: 25 }]) {
+      for (const cfg of [BASE, { ...BASE, kerf: 0.4, tabWidth: 25 }, FLAT, { ...FLAT, kerf: 0.4, tabWidth: 25 }]) {
         const result = buildBox(cfg);
         if (result.errors.length > 0) continue;
         for (const p of result.panels) {
@@ -288,8 +293,8 @@
     });
 
     check('todos los paneles producen contornos cerrados y sin puntos duplicados', () => {
-      for (const p of box.panels) {
-        assert(p.points.length >= 8, `${p.id}: muy pocos puntos`);
+      for (const p of [...box.panels, ...buildBox(FLAT).panels]) {
+        assert(p.points.length >= 4, `${p.id}: muy pocos puntos`);
         for (let i = 1; i < p.points.length; i++) {
           const a = p.points[i - 1], b = p.points[i];
           assert(!(near(a.x, b.x) && near(a.y, b.y)), `${p.id}: punto duplicado en ${i}`);
@@ -301,23 +306,55 @@
     check('barrido de parámetros: nada explota ni devuelve NaN', () => {
       for (const thickness of [1.5, 3, 6, 9]) {
         for (const kerf of [0, 0.1, 0.3]) {
-          for (const dims of [[60, 60, 60], [300, 200, 120], [500, 40, 40]]) {
-            const params = {
-              length: dims[0], width: dims[1], height: dims[2],
-              thickness, kerf, dimensionMode: 'outer',
-              tabWidth: autoTabWidth({ length: dims[0], width: dims[1], height: dims[2], thickness, dimensionMode: 'outer' }),
-            };
-            const result = buildBox(params);
-            if (result.errors.length > 0) continue;
-            for (const p of result.panels) {
-              for (const pt of p.points) {
-                assert(Number.isFinite(pt.x) && Number.isFinite(pt.y),
-                  `NaN con t=${thickness} k=${kerf} dims=${dims}`);
+          for (const lidType of ['finger', 'flat']) {
+            for (const dims of [[60, 60, 60], [300, 200, 120], [500, 40, 40]]) {
+              const base = { length: dims[0], width: dims[1], height: dims[2], thickness, dimensionMode: 'outer', lidType };
+              const result = buildBox({ ...base, kerf, tabWidth: autoTabWidth(base) });
+              if (result.errors.length > 0) continue;
+              for (const p of result.panels) {
+                for (const pt of p.points) {
+                  assert(Number.isFinite(pt.x) && Number.isFinite(pt.y),
+                    `NaN con t=${thickness} k=${kerf} tapa=${lidType} dims=${dims}`);
+                }
               }
             }
           }
         }
       }
+    });
+
+    check('tapa plana: la tapa es un rectángulo liso del tamaño exterior', () => {
+      const flat = buildBox(FLAT);
+      assert(flat.errors.length === 0, flat.errors.join(' | '));
+      const lid = flat.panels.find((p) => p.id === 'top');
+      assert(lid.points.length === 4, `la tapa tiene ${lid.points.length} puntos, esperaba 4`);
+      const bb = boundingBox(lid.points);
+      assert(near(bb.width, 200) && near(bb.height, 150),
+        `la tapa mide ${bb.width} × ${bb.height}, esperaba 200 × 150`);
+    });
+
+    check('tapa plana: el borde superior de las paredes queda recto', () => {
+      const flat = buildBox(FLAT);
+      for (const id of ['front', 'back', 'left', 'right']) {
+        const p = flat.panels.find((q) => q.id === id);
+        const onTop = p.points.filter((q) => Math.abs(q.y) < TOL);
+        assert(onTop.length === 2,
+          `${id}: el borde superior tiene ${onTop.length} vértices, esperaba 2 (recto)`);
+        assert(onTop.some((q) => near(q.x, 0)) && onTop.some((q) => near(q.x, p.width)),
+          `${id}: el borde superior no va de esquina a esquina`);
+      }
+    });
+
+    check('tapa plana: pared + tapa dan el alto exterior pedido', () => {
+      const flat = buildBox(FLAT);
+      const wall = flat.panels.find((p) => p.id === 'front');
+      assert(near(wall.height + t, 80),
+        `pared ${wall.height} + tapa ${t} = ${wall.height + t}, esperaba 80`);
+      assert(near(flat.outer.height, 80), `alto exterior ${flat.outer.height}`);
+      assert(near(flat.inner.height, 74), `alto interior ${flat.inner.height}, esperaba 74`);
+      // La base sigue encajando con espigas.
+      const base = flat.panels.find((p) => p.id === 'bottom');
+      assert(base.points.length > 4, 'la base debería conservar sus espigas');
     });
 
     const failed = results.filter((r) => !r.ok);

@@ -23,6 +23,7 @@ function readParams() {
     thickness: number('thickness'),
     kerf: number('kerf'),
     dimensionMode: form.elements.dimensionMode.value,
+    lidType: form.elements.lidType.value,
     tabWidth: number('tabWidth'),
   };
 
@@ -87,7 +88,8 @@ downloadBtn.addEventListener('click', () => {
   if (!currentSvg || !currentBox) return;
   const { length, width, height } = currentBox.outer;
   const thickness = document.getElementById('thickness').value;
-  downloadSvg(currentSvg, `boxmaker-${round(length, 1)}x${round(width, 1)}x${round(height, 1)}-t${thickness}.svg`);
+  const lid = form.elements.lidType.value === 'flat' ? '-tapaplana' : '';
+  downloadSvg(currentSvg, `boxmaker-${round(length, 1)}x${round(width, 1)}x${round(height, 1)}-t${thickness}${lid}.svg`);
 });
 
 recompute();

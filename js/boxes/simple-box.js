@@ -3,11 +3,22 @@ import { computeSegments } from '../core/finger-joint.js';
 
 // Suggested finger width: ~3x material thickness, never under 6 mm, and always
 // small enough that the shortest joint still gets at least three segments.
-export function autoTabWidth({ length, width, height, thickness, dimensionMode }) {
-  const { Lo, Wo, Ho } = outerDimensions({ length, width, height, thickness, dimensionMode });
-  const shortestSpan = Math.min(Ho - 2 * thickness, Lo - 2 * thickness, Wo - 2 * thickness);
+export function autoTabWidth(params) {
+  const { thickness } = params;
+  const { Lo, Wo, Ho } = outerDimensions(params);
+  const shortestSpan = Math.min(
+    wallHeightFor(Ho, thickness, params.lidType) - 2 * thickness,
+    Lo - 2 * thickness,
+    Wo - 2 * thickness,
+  );
   if (!(shortestSpan > 0)) return Math.max(3 * thickness, 6);
   return Math.min(Math.max(3 * thickness, 6), shortestSpan / 3);
+}
+
+// Con tapa plana las paredes pierden un grosor: la tapa se apoya encima de su
+// canto, así que pared + tapa vuelve a dar el alto exterior pedido.
+function wallHeightFor(Ho, thickness, lidType) {
+  return lidType === 'flat' ? Ho - thickness : Ho;
 }
 
 export function outerDimensions({ length, width, height, thickness, dimensionMode }) {
@@ -20,8 +31,10 @@ export function outerDimensions({ length, width, height, thickness, dimensionMod
 // one thickness on each side is male (tabs reach out into the other's plane).
 // Front/Back span X and Z fully, Left/Right are inset in Y, Top/Bottom in both.
 export function buildBox(params) {
-  const { thickness: t, kerf, tabWidth } = params;
+  const { thickness: t, kerf, tabWidth, lidType = 'finger' } = params;
   const { Lo, Wo, Ho } = outerDimensions(params);
+  const flatLid = lidType === 'flat';
+  const wallHeight = wallHeightFor(Ho, t, lidType);
 
   const spanX = Lo - 2 * t; // Front/Back <-> Top/Bottom joints
   const spanY = Wo - 2 * t; // Left/Right <-> Top/Bottom joints
@@ -29,9 +42,9 @@ export function buildBox(params) {
   // base, para que las esquinas de Front/Back queden macizas: si llegara hasta el
   // borde, dos escotaduras perpendiculares se tocarían en la esquina y dejarían
   // ahí una lengüeta más fina que el kerf.
-  const spanZ = Ho - 2 * t; //  Front/Back <-> Left/Right joints
+  const spanZ = wallHeight - 2 * t; //  Front/Back <-> Left/Right joints
 
-  const errors = validate({ Lo, Wo, Ho, spanX, spanY, spanZ, t, kerf, tabWidth });
+  const errors = validate({ Lo, Wo, Ho, spanX, spanY, spanZ, t, kerf, tabWidth, flatLid });
   if (errors.length > 0) return { errors, warnings: [], panels: [] };
 
   const segments = (span) => {
@@ -45,11 +58,15 @@ export function buildBox(params) {
   // de la esquina sujeto solo por medio kerf: una isla que se cae al cortar.
   const SOLID = { startsSolid: true };
 
+  // Con tapa plana el canto superior de las paredes queda liso: no hay nada que
+  // encaje ahí, la tapa solo se apoya encima.
+  const lidEdge = (spec) => (flatLid ? { gender: 'plain' } : spec);
+
   const endWall = {
     width: Lo,
-    height: Ho,
+    height: wallHeight,
     edges: {
-      top: { gender: 'female', jointStart: t, jointSpan: spanX, ...SOLID },
+      top: lidEdge({ gender: 'female', jointStart: t, jointSpan: spanX, ...SOLID }),
       bottom: { gender: 'female', jointStart: t, jointSpan: spanX, ...SOLID },
       left: { gender: 'female', jointStart: t, jointSpan: spanZ, ...SOLID },
       right: { gender: 'female', jointStart: t, jointSpan: spanZ, ...SOLID },
@@ -58,9 +75,9 @@ export function buildBox(params) {
 
   const sideWall = {
     width: spanY,
-    height: Ho,
+    height: wallHeight,
     edges: {
-      top: { gender: 'female', ...SOLID },
+      top: lidEdge({ gender: 'female', ...SOLID }),
       bottom: { gender: 'female', ...SOLID },
       left: { gender: 'male', jointStart: t, jointSpan: spanZ, ...SOLID },
       right: { gender: 'male', jointStart: t, jointSpan: spanZ, ...SOLID },
@@ -78,11 +95,22 @@ export function buildBox(params) {
     },
   };
 
+  const flatPanel = {
+    width: Lo,
+    height: Wo,
+    edges: {
+      top: { gender: 'plain' },
+      bottom: { gender: 'plain' },
+      left: { gender: 'plain' },
+      right: { gender: 'plain' },
+    },
+  };
+
   const specs = [
     { id: 'bottom', label: 'BOTTOM', ...cap },
     { id: 'front', label: 'FRONT', ...endWall },
     { id: 'left', label: 'LEFT', ...sideWall },
-    { id: 'top', label: 'TOP', ...cap },
+    { id: 'top', label: 'TOP', ...(flatLid ? flatPanel : cap) },
     { id: 'back', label: 'BACK', ...endWall },
     { id: 'right', label: 'RIGHT', ...sideWall },
   ];
@@ -100,7 +128,7 @@ export function buildBox(params) {
   };
 }
 
-function validate({ Lo, Wo, Ho, spanX, spanY, spanZ, t, kerf, tabWidth }) {
+function validate({ Lo, Wo, Ho, spanX, spanY, spanZ, t, kerf, tabWidth, flatLid }) {
   const errors = [];
   const positive = (value) => Number.isFinite(value) && value > 0;
 
@@ -119,9 +147,9 @@ function validate({ Lo, Wo, Ho, spanX, spanY, spanZ, t, kerf, tabWidth }) {
     );
   }
   if (spanZ <= 0) {
-    errors.push(
-      `Con ${t} mm de material, una caja de ${Ho} mm de alto no deja pared entre la base y la tapa.`,
-    );
+    errors.push(flatLid
+      ? `Con ${t} mm de material y tapa plana, una caja de ${Ho} mm de alto no deja pared suficiente para las espigas.`
+      : `Con ${t} mm de material, una caja de ${Ho} mm de alto no deja pared entre la base y la tapa.`);
   }
   if (errors.length > 0) return errors;
 
