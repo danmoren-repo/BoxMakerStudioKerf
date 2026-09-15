@@ -20,9 +20,10 @@
 
   <script type="module">
     import { computeSegments, edgeProfile, jointIntervals } from './js/core/finger-joint.js';
-    import { panelOutline } from './js/core/panel.js';
+    import { panelOutline, pocketFeature } from './js/core/panel.js';
     import { boundingBox } from './js/core/geometry.js';
     import { buildBox, autoTabWidth } from './js/boxes/simple-box.js';
+    import { renderBox } from './js/render/svg-render.js';
 
     const results = [];
     const TOL = 1e-6;
@@ -401,6 +402,47 @@
         'falta el error de material demasiado grueso');
       assert(broken.errors.some((e) => e.includes('no deja pared entre la base')),
         'falta el error de alto insuficiente');
+    });
+
+    check('pocketFeature devuelve un rectángulo cerrado con su capa y profundidad', () => {
+      const f = pocketFeature({ id: 'groove', x: 1, y: 2, width: 10, height: 3, depth: 1.5 });
+      assert(f.id === 'groove', `id ${f.id}`);
+      assert(f.layer === 'engrave', `capa ${f.layer}, esperaba engrave`);
+      assert(f.kind === 'pocket', `kind ${f.kind}, esperaba pocket`);
+      assert(near(f.depth, 1.5), `depth ${f.depth}`);
+      assert(f.points.length === 4, `${f.points.length} puntos, esperaba 4`);
+      const bb = boundingBox(f.points);
+      assert(near(bb.minX, 1) && near(bb.minY, 2) && near(bb.width, 10) && near(bb.height, 3),
+        `bbox (${bb.minX}, ${bb.minY}) ${bb.width} × ${bb.height}`);
+    });
+
+    check('el render saca las features a la capa de grabado, trasladadas con su pieza', () => {
+      const spec = {
+        id: 'probe', label: 'PROBE', width: 20, height: 10,
+        edges: {
+          top: { gender: 'plain' }, right: { gender: 'plain' },
+          bottom: { gender: 'plain' }, left: { gender: 'plain' },
+        },
+      };
+      const points = panelOutline(spec, { thickness: 3, kerf: 0, tabWidth: 6 });
+      const feature = pocketFeature({ id: 'groove', x: 2, y: 1, width: 5, height: 2, depth: 1.5 });
+      const svg = renderBox({ panels: [{ ...spec, points, features: [feature] }] });
+
+      const engrave = svg.querySelector('#engrave');
+      assert(engrave, 'no hay capa de grabado');
+      assert(engrave.getAttribute('stroke') === '#e5484d',
+        `trazo ${engrave.getAttribute('stroke')}, esperaba #e5484d`);
+      assert(engrave.children.length === 1,
+        `${engrave.children.length} paths en grabado, esperaba 1`);
+      // La pieza se coloca con margen 10, así que la feature se corre igual: (2,1) → (12,11).
+      assert(engrave.children[0].getAttribute('d') === 'M12,11 L17,11 L17,13 L12,13Z',
+        `d = ${engrave.children[0].getAttribute('d')}`);
+      assert(svg.querySelector('#cut').children.length === 1, 'el contorno no llegó a la capa de corte');
+    });
+
+    check('la caja cerrada no genera una capa de grabado vacía', () => {
+      const svg = renderBox(buildBox(BASE));
+      assert(!svg.querySelector('#engrave'), 'apareció una capa de grabado sin nada dentro');
     });
 
     const failed = results.filter((r) => !r.ok);

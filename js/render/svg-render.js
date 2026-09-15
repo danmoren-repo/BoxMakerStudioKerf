@@ -1,9 +1,12 @@
 import { boundingBox, pathFromPoints, round } from '../core/geometry.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+const INKSCAPE_NS = 'http://www.inkscape.org/namespaces/inkscape';
 const MARGIN = 10;
 const GAP = 10;
 const COLUMNS = 3;
+const CUT_COLOR = '#000000';
+const ENGRAVE_COLOR = '#e5484d';
 
 // One SVG in real millimetres: width/height carry the mm suffix and the viewBox
 // repeats the same numbers, so 1 user unit = 1 mm in Inkscape and LightBurn.
@@ -17,12 +20,22 @@ export function renderBox(box, { showLabels = true } = {}) {
   svg.setAttribute('width', `${sheetWidth}mm`);
   svg.setAttribute('height', `${sheetHeight}mm`);
   svg.setAttribute('viewBox', `0 0 ${sheetWidth} ${sheetHeight}`);
+  svg.setAttribute('xmlns:inkscape', INKSCAPE_NS);
 
-  const cuts = document.createElementNS(SVG_NS, 'g');
-  cuts.setAttribute('id', 'cut');
-  cuts.setAttribute('fill', 'none');
-  cuts.setAttribute('stroke', '#000000');
-  cuts.setAttribute('stroke-width', '0.2');
+  const layerGroup = (id, label, stroke) => {
+    const g = document.createElementNS(SVG_NS, 'g');
+    g.setAttribute('id', id);
+    g.setAttribute('fill', 'none');
+    g.setAttribute('stroke', stroke);
+    g.setAttribute('stroke-width', '0.2');
+    g.setAttributeNS(INKSCAPE_NS, 'inkscape:groupmode', 'layer');
+    g.setAttributeNS(INKSCAPE_NS, 'inkscape:label', label);
+    return g;
+  };
+
+  const cuts = layerGroup('cut', 'Corte', CUT_COLOR);
+  const engrave = layerGroup('engrave', 'Grabado', ENGRAVE_COLOR);
+  let engraveCount = 0;
 
   const labels = document.createElementNS(SVG_NS, 'g');
   labels.setAttribute('id', 'labels');
@@ -35,6 +48,14 @@ export function renderBox(box, { showLabels = true } = {}) {
     path.setAttribute('id', item.panel.id);
     path.setAttribute('d', pathFromPoints(item.points));
     cuts.appendChild(path);
+
+    for (const feature of item.features) {
+      const featurePath = document.createElementNS(SVG_NS, 'path');
+      featurePath.setAttribute('id', `${item.panel.id}-${feature.id}`);
+      featurePath.setAttribute('d', pathFromPoints(feature.points));
+      (feature.layer === 'cut' ? cuts : engrave).appendChild(featurePath);
+      if (feature.layer !== 'cut') engraveCount += 1;
+    }
 
     if (showLabels) {
       const bbox = boundingBox(item.points);
@@ -49,6 +70,7 @@ export function renderBox(box, { showLabels = true } = {}) {
   }
 
   svg.appendChild(cuts);
+  if (engraveCount > 0) svg.appendChild(engrave);
   if (showLabels) svg.appendChild(labels);
   return svg;
 }
@@ -74,6 +96,10 @@ function layout(panels) {
     items.push({
       panel,
       points: panel.points.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+      features: (panel.features ?? []).map((f) => ({
+        ...f,
+        points: f.points.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+      })),
     });
     cursorX += bbox.width + GAP;
     sheetWidth = Math.max(sheetWidth, cursorX - GAP);
