@@ -15,7 +15,8 @@
 - **Rama de trabajo:** `tapa-deslizante`. No trabajar sobre `main`.
 - **Sin dependencias nuevas, sin build step, sin backend.** Es una web estática client-side y se queda así.
 - **Todo en milímetros.** El SVG exportado lleva `width`/`height` en mm y un `viewBox` con los mismos números: 1 unidad = 1 mm.
-- **Idioma:** mensajes de error y aviso en español (son para Dani); comentarios de código en el idioma que ya usa cada archivo (hay de los dos, seguir el del archivo); etiquetas de pieza en el SVG en inglés (`BOTTOM`, `FRONT`, `BACK`, `LEFT`, `RIGHT`, `LID`).
+- **Idioma:** mensajes de error y aviso en español (son para Dani); etiquetas de pieza en el SVG en inglés (`BOTTOM`, `FRONT`, `BACK`, `LEFT`, `RIGHT`, `LID`).
+- **Idioma de los comentarios**, que el repo ya tiene resuelto por carpeta y conviene no romper: `js/core/` y `js/render/` van **en inglés**, sin excepciones — son geometría y dibujo puros. `js/boxes/` va **mixto a propósito**: inglés para explicar la estructura del código, español para el razonamiento de taller (por qué una pared pierde un grosor, por qué una junta arranca maciza). Al añadir un comentario, mirar primero qué carpeta es.
 - **Color de la capa de grabado:** `#e5484d`. Color de la capa de corte: `#000000`. `stroke-width` 0.2 en ambas.
 - **El canal se dibuja a medida terminada, sin compensación de kerf.** El kerf sólo se aplica a cortes pasantes.
 - **Caso de referencia que no se puede romper:** caja cerrada 80 × 80 × 80 exteriores, `thickness` 3, `kerf` 0.16, `tabWidth` 12, `lidType` `finger`. Es la caja que Dani ya cortó y validó físicamente.
