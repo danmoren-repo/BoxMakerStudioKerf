@@ -23,6 +23,7 @@
     import { panelOutline, pocketFeature } from './js/core/panel.js';
     import { boundingBox } from './js/core/geometry.js';
     import { buildBox, autoTabWidth } from './js/boxes/simple-box.js';
+    import { buildSlidingBox } from './js/boxes/sliding-box.js';
     import { renderBox } from './js/render/svg-render.js';
 
     const results = [];
@@ -443,6 +444,99 @@
     check('la caja cerrada no genera una capa de grabado vacía', () => {
       const svg = renderBox(buildBox(BASE));
       assert(!svg.querySelector('#engrave'), 'apareció una capa de grabado sin nada dentro');
+    });
+
+    const SLIDE = {
+      length: 80, width: 80, height: 80,
+      thickness: 3, kerf: 0.16, tabWidth: 12,
+      dimensionMode: 'outer', lidType: 'sliding',
+      slideClearance: 0.2,
+    };
+    const slide = buildSlidingBox(SLIDE);
+    const sp = (id) => slide.panels.find((p) => p.id === id);
+
+    check('deslizante: seis piezas y ningún error', () => {
+      assert(slide.errors.length === 0, slide.errors.join(' | '));
+      assert(slide.panels.length === 6, `${slide.panels.length} piezas, esperaba 6`);
+      assert(sp('lid'), 'falta la tapa');
+      assert(!slide.panels.some((p) => p.id === 'top'), 'la tapa deslizante no debe llamarse top');
+    });
+
+    check('deslizante: de suelo a tapa da el alto pedido', () => {
+      assert(near(slide.outer.height, 80), `alto exterior ${slide.outer.height}`);
+      assert(near(slide.realOuterHeight, 83.2),
+        `alto real ${slide.realOuterHeight}, esperaba 83.2`);
+    });
+
+    check('deslizante: alturas de pared y frente', () => {
+      assert(near(sp('left').height, 83.2), `lateral ${sp('left').height}`);
+      assert(near(sp('right').height, 83.2), `lateral ${sp('right').height}`);
+      assert(near(sp('back').height, 83.2), `fondo ${sp('back').height}`);
+      assert(near(sp('front').height, 77), `frente ${sp('front').height}`);
+      assert(near(sp('front').width, 80) && near(sp('back').width, 80),
+        'frente y fondo deben abarcar el largo completo');
+      assert(near(sp('left').width, 74), `lateral ancho ${sp('left').width}`);
+    });
+
+    check('deslizante: la tapa mide 76.6 × 78.3 y va lisa', () => {
+      const lid = sp('lid');
+      assert(near(lid.width, 76.6), `ancho ${lid.width}`);
+      assert(near(lid.height, 78.3), `profundo ${lid.height}`);
+      assert(lid.points.length === 4, `${lid.points.length} puntos: la tapa no lleva espigas`);
+    });
+
+    check('deslizante: interior útil y modo interiores', () => {
+      assert(near(slide.inner.height, 74), `alto interior ${slide.inner.height}`);
+      assert(near(slide.inner.length, 74) && near(slide.inner.width, 74), 'interior en planta');
+      const byInner = buildSlidingBox({ ...SLIDE, dimensionMode: 'inner', length: 74, width: 74, height: 74 });
+      assert(byInner.errors.length === 0, byInner.errors.join(' | '));
+      assert(near(byInner.outer.height, 80), `exterior ${byInner.outer.height}, esperaba 80`);
+      assert(near(byInner.inner.height, 74), `interior ${byInner.inner.height}`);
+      assert(near(byInner.outer.length, 80), `largo exterior ${byInner.outer.length}`);
+    });
+
+    check('deslizante: cantos superiores lisos y junta del frente más corta', () => {
+      for (const id of ['front', 'back', 'left', 'right']) {
+        const p = sp(id);
+        const onTop = p.points.filter((q) => Math.abs(q.y) < TOL);
+        assert(onTop.length === 2,
+          `${id}: el borde superior tiene ${onTop.length} vértices, esperaba 2 (recto)`);
+      }
+      const left = sp('left');
+      assert(near(left.edges.left.jointSpan, 71),
+        `junta del frente ${left.edges.left.jointSpan}, esperaba 71`);
+      assert(near(left.edges.right.jointSpan, 77.2),
+        `junta del fondo ${left.edges.right.jointSpan}, esperaba 77.2`);
+    });
+
+    check('deslizante: cada par de aristas macho/hembra encaja', () => {
+      // [pieza hembra, su arista, pieza macho, su arista]. En los laterales la
+      // arista 'left' es la que mira al frente y 'right' la que mira al fondo.
+      const pairs = [
+        ['front', 'left', 'left', 'left'],
+        ['front', 'right', 'right', 'left'],
+        ['back', 'left', 'left', 'right'],
+        ['back', 'right', 'right', 'right'],
+        ['front', 'bottom', 'bottom', 'top'],
+        ['back', 'bottom', 'bottom', 'bottom'],
+        ['left', 'bottom', 'bottom', 'left'],
+        ['right', 'bottom', 'bottom', 'right'],
+      ];
+      for (const [femaleId, femaleEdge, maleId, maleEdge] of pairs) {
+        const female = sp(femaleId).edges[femaleEdge];
+        const male = sp(maleId).edges[maleEdge];
+        const pair = `${femaleId}.${femaleEdge} ↔ ${maleId}.${maleEdge}`;
+        assert(female.gender === 'female', `${pair}: ${femaleId} no es hembra`);
+        assert(male.gender === 'male', `${pair}: ${maleId} no es macho`);
+        const femaleSpan = female.jointSpan ?? null;
+        const maleSpan = male.jointSpan ?? null;
+        if (femaleSpan !== null && maleSpan !== null) {
+          assert(near(femaleSpan, maleSpan),
+            `${pair}: tramos distintos, ${femaleSpan} vs ${maleSpan}`);
+        }
+        assert((female.startsSolid ?? false) === (male.startsSolid ?? false),
+          `${pair}: fases distintas, la espiga no caería en su ranura`);
+      }
     });
 
     const failed = results.filter((r) => !r.ok);
