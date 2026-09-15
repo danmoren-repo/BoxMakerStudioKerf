@@ -706,8 +706,21 @@ Y añadir, antes de `const failed = ...`:
           assert(near(femaleSpan, maleSpan),
             `${pair}: tramos distintos, ${femaleSpan} vs ${maleSpan}`);
         }
-        assert(near(female.jointStart ?? 0, male.jointStart ?? 0),
-          `${pair}: arranques distintos, ${female.jointStart} vs ${male.jointStart}`);
+          // 'left'/'top' recorren la arista en línea recta (u crece con z o x); 'right'/
+          // 'bottom' caminan al revés, así que su jointStart se mide desde el extremo
+          // lejano y depende del tamaño propio de la pieza. Comparar el jointStart crudo
+          // entre una arista 'right' y una 'left' — o entre dos 'right' de piezas de alto
+          // distinto, como el lateral derecho contra el frente — compara cosas que no
+          // están en el mismo sistema; hay que traducir las dos al mismo origen antes.
+          const globalStart = (panel, edgeKey, spec) => {
+            const start = spec.jointStart ?? 0;
+            const own = (edgeKey === 'left' || edgeKey === 'right') ? panel.height : panel.width;
+            return (edgeKey === 'left' || edgeKey === 'top') ? start : own - start - spec.jointSpan;
+          };
+          const femaleStart = globalStart(sp(femaleId), femaleEdge, female);
+          const maleStart = globalStart(sp(maleId), maleEdge, male);
+          assert(near(femaleStart, maleStart),
+            `${pair}: arranques distintos en coordenada global, ${femaleStart} vs ${maleStart}`);
         assert((female.startsSolid ?? false) === (male.startsSolid ?? false),
           `${pair}: fases distintas, la espiga no caería en su ranura`);
       }
@@ -845,8 +858,17 @@ export function buildSlidingBox(params) {
   // es más bajo que el fondo, sus juntas verticales miden distinto, así que
   // equivocar el lado le presentaría al frente la junta del fondo y la caja no
   // montaría. En la caja cerrada esto no pasaba porque ambas juntas medían igual.
+  // La arista 'left' recorre la pieza de piso hacia arriba (su u coincide con z
+  // sin importar cuánto mida la pieza), pero 'right' recorre de arriba hacia
+  // abajo: su jointStart se cuenta desde el CANTO SUPERIOR PROPIO. El fondo y
+  // los laterales comparten alto (wallHeight), así que ahí da igual qué arista
+  // toque a cuál. El frente es más bajo, así que cuando su junta cae en la
+  // arista 'right' de un lateral (el lateral derecho, con este espejo) hay que
+  // correr el arranque el sobrante de altura entre lateral y frente para que
+  // siga midiéndose desde el piso; si no, la espiga sube 6+ mm y queda al aire.
   const sideWall = (id, label, frontEdge) => {
     const backEdge = frontEdge === 'left' ? 'right' : 'left';
+    const frontJointStart = frontEdge === 'left' ? t : wallHeight - t - spanZFront;
     return {
       id,
       label,
@@ -855,7 +877,7 @@ export function buildSlidingBox(params) {
       edges: {
         top: { gender: 'plain' },
         bottom: { gender: 'female', ...SOLID },
-        [frontEdge]: { gender: 'male', jointStart: t, jointSpan: spanZFront, ...SOLID },
+        [frontEdge]: { gender: 'male', jointStart: frontJointStart, jointSpan: spanZFront, ...SOLID },
         [backEdge]: { gender: 'male', jointStart: t, jointSpan: spanZBack, ...SOLID },
       },
       // El canal recorre la pieza entera, así que es simétrico y no cambia con
