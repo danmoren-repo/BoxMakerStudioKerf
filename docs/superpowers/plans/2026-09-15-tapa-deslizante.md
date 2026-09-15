@@ -686,9 +686,9 @@ Y añadir, antes de `const failed = ...`:
       // arista 'left' es la que mira al frente y 'right' la que mira al fondo.
       const pairs = [
         ['front', 'left', 'left', 'left'],
-        ['front', 'right', 'right', 'left'],
+        ['front', 'right', 'right', 'right'],
         ['back', 'left', 'left', 'right'],
-        ['back', 'right', 'right', 'right'],
+        ['back', 'right', 'right', 'left'],
         ['front', 'bottom', 'bottom', 'top'],
         ['back', 'bottom', 'bottom', 'bottom'],
         ['left', 'bottom', 'bottom', 'left'],
@@ -706,9 +706,25 @@ Y añadir, antes de `const failed = ...`:
           assert(near(femaleSpan, maleSpan),
             `${pair}: tramos distintos, ${femaleSpan} vs ${maleSpan}`);
         }
+        assert(near(female.jointStart ?? 0, male.jointStart ?? 0),
+          `${pair}: arranques distintos, ${female.jointStart} vs ${male.jointStart}`);
         assert((female.startsSolid ?? false) === (male.startsSolid ?? false),
           `${pair}: fases distintas, la espiga no caería en su ranura`);
       }
+    });
+
+    check('deslizante: los dos laterales son espejo, no la misma pieza', () => {
+      const left = sp('left');
+      const right = sp('right');
+      // Si este par de igualdades no se cumple, un lateral le presenta al frente
+      // la junta del fondo: la caja no monta y en el dibujo no se nota.
+      assert(near(left.edges.left.jointSpan, right.edges.right.jointSpan),
+        `el canto que mira al frente difiere entre laterales: ${left.edges.left.jointSpan} vs ${right.edges.right.jointSpan}`);
+      assert(near(left.edges.right.jointSpan, right.edges.left.jointSpan),
+        `el canto que mira al fondo difiere entre laterales: ${left.edges.right.jointSpan} vs ${right.edges.left.jointSpan}`);
+      // Sin esto el check sería vacuo: con las dos juntas iguales se cumpliría solo.
+      assert(!near(left.edges.left.jointSpan, left.edges.right.jointSpan),
+        'las dos juntas verticales de un lateral deben diferir; si no, este check no prueba nada');
     });
 ```
 
@@ -820,24 +836,38 @@ export function buildSlidingBox(params) {
   // superior de la pared, así que z se lee al revés.
   const grooveY = wallHeight - grooveTop;
 
-  const sideWall = (id, label) => ({
-    id,
-    label,
-    width: spanY,
-    height: wallHeight,
-    edges: {
-      top: { gender: 'plain' },
-      bottom: { gender: 'female', ...SOLID },
-      left: { gender: 'male', jointStart: t, jointSpan: spanZFront, ...SOLID },
-      right: { gender: 'male', jointStart: t, jointSpan: spanZBack, ...SOLID },
-    },
-    features: [pocketFeature({
-      id: 'groove',
-      x: 0, y: grooveY,
-      width: spanY, height: grooveHeight,
-      depth: p,
-    })],
-  });
+  // Los dos laterales NO son la misma pieza: son espejo uno del otro. El canal
+  // va en la cara interior, y una pieza grabada sólo tiene canal en una cara; si
+  // se emitieran idénticas habría que girar una 180° para meter su canal hacia
+  // dentro, y ese giro intercambia el frente con el fondo. Mirando cada cara
+  // interior desde dentro de la caja, en el lateral izquierdo el frente queda a
+  // la izquierda del dibujo y en el derecho queda a la derecha. Como el frente
+  // es más bajo que el fondo, sus juntas verticales miden distinto, así que
+  // equivocar el lado le presentaría al frente la junta del fondo y la caja no
+  // montaría. En la caja cerrada esto no pasaba porque ambas juntas medían igual.
+  const sideWall = (id, label, frontEdge) => {
+    const backEdge = frontEdge === 'left' ? 'right' : 'left';
+    return {
+      id,
+      label,
+      width: spanY,
+      height: wallHeight,
+      edges: {
+        top: { gender: 'plain' },
+        bottom: { gender: 'female', ...SOLID },
+        [frontEdge]: { gender: 'male', jointStart: t, jointSpan: spanZFront, ...SOLID },
+        [backEdge]: { gender: 'male', jointStart: t, jointSpan: spanZBack, ...SOLID },
+      },
+      // El canal recorre la pieza entera, así que es simétrico y no cambia con
+      // el espejo: es lo único de la pieza que sí puede ser idéntico en ambos.
+      features: [pocketFeature({
+        id: 'groove',
+        x: 0, y: grooveY,
+        width: spanY, height: grooveHeight,
+        depth: p,
+      })],
+    };
+  };
 
   const specs = [
     {
@@ -860,7 +890,7 @@ export function buildSlidingBox(params) {
         right: { gender: 'female', jointStart: t, jointSpan: spanZFront, ...SOLID },
       },
     },
-    sideWall('left', 'LEFT'),
+    sideWall('left', 'LEFT', 'left'),
     {
       id: 'lid', label: 'LID',
       width: spanX + 2 * grip,
@@ -891,7 +921,7 @@ export function buildSlidingBox(params) {
         depth: p,
       })],
     },
-    sideWall('right', 'RIGHT'),
+    sideWall('right', 'RIGHT', 'right'),
   ];
 
   const material = { thickness: t, kerf, tabWidth };
@@ -926,7 +956,7 @@ function warningsFor({ jointWidths, t, kerf, tabWidth }) {
 
 `validate` y `warningsFor` quedan de momento como cascarones: la Task 6 les pone el contenido. Están así para que este paso se pueda probar solo, no porque el diseño los quiera vacíos.
 
-- [ ] **Step 4: Correr los checks — los siete en verde**
+- [ ] **Step 4: Correr los checks — los ocho en verde**
 
 Seguir "Cómo se corren los checks".
 Expected: `ALL CHECKS PASSED`.
