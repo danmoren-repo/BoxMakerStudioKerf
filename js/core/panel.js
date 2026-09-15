@@ -39,9 +39,9 @@ export function panelOutline(panel, material) {
   return dedupePoints(points);
 }
 
-// Un contorno interior rectangular de la pieza, en las mismas coordenadas
-// locales que su contorno exterior. `depth` es cuánto se vacía hacia dentro del
-// material: no es un corte pasante, así que nunca lleva compensación de kerf.
+// A rectangular interior contour of the panel, in the same local coordinates as
+// its outline. `depth` is how far it is hollowed into the material: it is not a
+// through cut, so it never carries kerf compensation.
 export function pocketFeature({ id, x, y, width, height, depth, layer = 'engrave' }) {
   return {
     id,
