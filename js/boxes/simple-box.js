@@ -1,29 +1,29 @@
 import { panelOutline } from '../core/panel.js';
-import { computeSegments } from '../core/finger-joint.js';
+import {
+  autoTabWidthFromSpans,
+  commonWarnings,
+  jointSegments,
+  outerDimensions,
+  validateBasics,
+  validateTabsVsKerf,
+} from './shared.js';
 
 // Suggested finger width: ~3x material thickness, never under 6 mm, and always
 // small enough that the shortest joint still gets at least three segments.
 export function autoTabWidth(params) {
   const { thickness } = params;
   const { Lo, Wo, Ho } = outerDimensions(params);
-  const shortestSpan = Math.min(
-    wallHeightFor(Ho, thickness, params.lidType) - 2 * thickness,
-    Lo - 2 * thickness,
-    Wo - 2 * thickness,
+  const wallHeight = wallHeightFor(Ho, thickness, params.lidType);
+  return autoTabWidthFromSpans(
+    [wallHeight - 2 * thickness, Lo - 2 * thickness, Wo - 2 * thickness],
+    thickness,
   );
-  if (!(shortestSpan > 0)) return Math.max(3 * thickness, 6);
-  return Math.min(Math.max(3 * thickness, 6), shortestSpan / 3);
 }
 
 // Con tapa plana las paredes pierden un grosor: la tapa se apoya encima de su
 // canto, así que pared + tapa vuelve a dar el alto exterior pedido.
 function wallHeightFor(Ho, thickness, lidType) {
   return lidType === 'flat' ? Ho - thickness : Ho;
-}
-
-export function outerDimensions({ length, width, height, thickness, dimensionMode }) {
-  const pad = dimensionMode === 'inner' ? 2 * thickness : 0;
-  return { Lo: length + pad, Wo: width + pad, Ho: height + pad };
 }
 
 // A closed six-panel box. The panel spanning a full outer dimension along an
@@ -47,11 +47,11 @@ export function buildBox(params) {
   const errors = validate({ Lo, Wo, Ho, spanX, spanY, spanZ, t, kerf, tabWidth, flatLid });
   if (errors.length > 0) return { errors, warnings: [], panels: [] };
 
-  const segments = (span) => {
-    const s = computeSegments(span, tabWidth, true);
-    return { ...s, tabs: (s.count - 1) / 2 };
+  const joints = {
+    x: jointSegments(spanX, tabWidth),
+    y: jointSegments(spanY, tabWidth),
+    z: jointSegments(spanZ, tabWidth),
   };
-  const joints = { x: segments(spanX), y: segments(spanY), z: segments(spanZ) };
 
   // Toda junta arranca y termina con material en la pieza hembra. Si arrancara
   // con ranura, las dos ranuras que concurren en una esquina dejarían el bloque
@@ -122,25 +122,19 @@ export function buildBox(params) {
     panels,
     joints,
     errors,
-    warnings: collectWarnings({ joints, t, kerf, tabWidth }),
+    warnings: commonWarnings({
+      jointWidths: [joints.x.width, joints.y.width, joints.z.width],
+      t, kerf, tabWidth,
+    }),
     outer: { length: Lo, width: Wo, height: Ho },
     inner: { length: Lo - 2 * t, width: Wo - 2 * t, height: Ho - 2 * t },
   };
 }
 
 function validate({ Lo, Wo, Ho, spanX, spanY, spanZ, t, kerf, tabWidth, flatLid }) {
-  const errors = [];
-  const positive = (value) => Number.isFinite(value) && value > 0;
-
-  if (!positive(t)) errors.push('El grosor del material debe ser mayor que 0.');
-  if (!Number.isFinite(kerf) || kerf < 0) errors.push('El kerf no puede ser negativo.');
-  if (!positive(tabWidth)) errors.push('El ancho de espiga debe ser mayor que 0.');
-  if (!positive(Lo) || !positive(Wo) || !positive(Ho)) {
-    errors.push('Largo, ancho y alto deben ser mayores que 0.');
-  }
+  const errors = validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho });
   if (errors.length > 0) return errors;
 
-  if (kerf >= t) errors.push('El kerf debe ser menor que el grosor del material.');
   if (spanX <= 0 || spanY <= 0) {
     errors.push(
       `El material de ${t} mm es demasiado grueso para una caja de ${Lo} × ${Wo} mm: no queda espacio para la tapa.`,
@@ -153,38 +147,10 @@ function validate({ Lo, Wo, Ho, spanX, spanY, spanZ, t, kerf, tabWidth, flatLid 
   }
   if (errors.length > 0) return errors;
 
-  for (const [name, span] of [['largo', spanX], ['ancho', spanY], ['alto', spanZ]]) {
-    const { width } = computeSegments(span, tabWidth, true);
-    if (width <= kerf * 1.5) {
-      errors.push(
-        `Las espigas del ${name} quedan de ${width.toFixed(2)} mm, demasiado pequeñas frente a un kerf de ${kerf} mm.`,
-      );
-    }
-  }
+  errors.push(...validateTabsVsKerf(
+    [['largo', spanX], ['ancho', spanY], ['alto', spanZ]],
+    tabWidth,
+    kerf,
+  ));
   return errors;
-}
-
-function collectWarnings({ joints, t, kerf, tabWidth }) {
-  const warnings = [];
-  const narrowest = Math.min(joints.x.width, joints.y.width, joints.z.width);
-
-  if (narrowest < 2) {
-    warnings.push(
-      `Alguna espiga queda de ${narrowest.toFixed(2)} mm: muy frágil para cortar. Sube el ancho de espiga.`,
-    );
-  }
-  if (tabWidth < 1.5 * t) {
-    warnings.push(
-      `El ancho de espiga (${tabWidth} mm) es menor que 1.5 veces el grosor (${t} mm); la junta queda débil.`,
-    );
-  }
-  if (tabWidth > 6 * t) {
-    warnings.push(
-      `El ancho de espiga (${tabWidth} mm) es más de 6 veces el grosor (${t} mm); pocas espigas y ensamble flojo.`,
-    );
-  }
-  if (kerf === 0) {
-    warnings.push('Kerf en 0: las piezas quedarán flojas al cortarlas. Mide el kerf real de tu láser.');
-  }
-  return warnings;
 }
