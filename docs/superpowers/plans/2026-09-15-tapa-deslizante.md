@@ -297,11 +297,7 @@ export function autoTabWidth(params) {
 }
 ```
 
-Borrar la función `outerDimensions` local y su `export`; ahora viene de `shared.js`. Para que `js/ui/app.js` no se entere, re-exportarla desde `simple-box.js` añadiendo junto a los imports:
-
-```js
-export { outerDimensions } from './shared.js';
-```
+Borrar la función `outerDimensions` local y su `export`; ahora viene de `shared.js`. No hace falta re-exportarla: nadie la importa desde fuera de `simple-box.js` (comprobado con `grep -rn outerDimensions js test.html index.html`), así que el `export` que tiene hoy ya es superficie muerta y se va con la función.
 
 Reemplazar el bloque `const segments = (span) => {...}` y la línea `const joints = ...` por:
 
@@ -922,7 +918,7 @@ function warningsFor({ jointWidths, t, kerf, tabWidth }) {
 
 `validate` y `warningsFor` quedan de momento como cascarones: la Task 6 les pone el contenido. Están así para que este paso se pueda probar solo, no porque el diseño los quiera vacíos.
 
-- [ ] **Step 4: Correr los checks — los seis en verde**
+- [ ] **Step 4: Correr los checks — los siete en verde**
 
 Seguir "Cómo se corren los checks".
 Expected: `ALL CHECKS PASSED`.
