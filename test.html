@@ -568,6 +568,69 @@
         'las dos juntas verticales de un lateral deben diferir; si no, este check no prueba nada');
     });
 
+    // z se lee desde el canto superior de la pieza: z = wallHeight - y.
+    const grooveZ = (id) => {
+      const panel = sp(id);
+      const feature = panel.features.find((f) => f.id === 'groove');
+      assert(feature, `${id}: no tiene canal`);
+      const bb = boundingBox(feature.points);
+      return {
+        floor: panel.height - (bb.minY + bb.height),
+        top: panel.height - bb.minY,
+        minX: bb.minX,
+        width: bb.width,
+        depth: feature.depth,
+        layer: feature.layer,
+      };
+    };
+
+    check('canales: los tres a la misma altura, en la capa de grabado', () => {
+      const [left, right, back] = ['left', 'right', 'back'].map(grooveZ);
+      for (const [name, g] of [['lateral izq', left], ['lateral der', right], ['fondo', back]]) {
+        assert(near(g.floor, 77), `${name}: piso a ${g.floor}, esperaba 77`);
+        assert(near(g.top, 80.2), `${name}: techo a ${g.top}, esperaba 80.2`);
+        assert(g.layer === 'engrave', `${name}: capa ${g.layer}`);
+      }
+    });
+
+    check('canales: ninguno atraviesa su pared', () => {
+      for (const id of ['left', 'right', 'back']) {
+        const g = grooveZ(id);
+        assert(g.depth < SLIDE.thickness,
+          `${id}: canal de ${g.depth} en pared de ${SLIDE.thickness}`);
+        assert(near(g.depth, 1.5), `${id}: profundidad ${g.depth}, esperaba 1.5`);
+      }
+    });
+
+    check('canales laterales: recorren la pieza de punta a punta', () => {
+      for (const id of ['left', 'right']) {
+        const g = grooveZ(id);
+        assert(near(g.minX, 0), `${id}: arranca en ${g.minX}, esperaba 0`);
+        assert(near(g.width, 74), `${id}: ancho ${g.width}, esperaba 74`);
+      }
+    });
+
+    check('canal del fondo: más ancho que la tapa, con margen t − p a cada canto', () => {
+      const g = grooveZ('back');
+      assert(near(g.width, 77), `ancho ${g.width}, esperaba 77`);
+      assert(near(g.minX, 1.5), `arranca en ${g.minX}, esperaba 1.5`);
+      assert(near(80 - (g.minX + g.width), 1.5),
+        `margen derecho ${80 - (g.minX + g.width)}, esperaba 1.5`);
+      assert(g.width > sp('lid').width,
+        `el canal (${g.width}) no es más ancho que la tapa (${sp('lid').width})`);
+    });
+
+    check('la tapa agarra en los tres canales y el frente no lleva canal', () => {
+      assert(slide.groove.grip > 0, `agarre ${slide.groove.grip}`);
+      assert(near(slide.groove.grip, 1.3), `agarre ${slide.groove.grip}, esperaba 1.3`);
+      assert(!sp('front').features || sp('front').features.length === 0,
+        'el frente no debe llevar canal: por ahí entra la tapa');
+      assert(!sp('bottom').features || sp('bottom').features.length === 0,
+        'la base no lleva canal');
+      assert(!sp('lid').features || sp('lid').features.length === 0,
+        'la tapa no lleva canal');
+    });
+
     const failed = results.filter((r) => !r.ok);
     document.getElementById('summary').textContent =
       failed.length === 0
