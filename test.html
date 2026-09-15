@@ -43,6 +43,34 @@
     const panel = (id) => box.panels.find((p) => p.id === id);
     const t = BASE.thickness;
 
+    // Geometría congelada de la caja que Dani cortó y validó (kerf 0.16, 3 mm).
+    // Si este check se pone rojo, algo cambió la caja cerrada: no seguir.
+    const GOLDEN = await fetch('./test/golden-finger-80.json').then((r) => r.json());
+    const GOLDEN_PARAMS = {
+      length: 80, width: 80, height: 80,
+      thickness: 3, kerf: 0.16, tabWidth: 12,
+      dimensionMode: 'outer', lidType: 'finger',
+    };
+
+    check('regresión: la caja cerrada de 80×80×80 en 3 mm sigue idéntica', () => {
+      const current = buildBox(GOLDEN_PARAMS);
+      assert(current.errors.length === 0, current.errors.join(' | '));
+      const ids = Object.keys(GOLDEN);
+      assert(current.panels.length === ids.length,
+        `${current.panels.length} piezas, esperaba ${ids.length}`);
+      for (const id of ids) {
+        const panel = current.panels.find((p) => p.id === id);
+        assert(panel, `falta la pieza ${id}`);
+        assert(panel.points.length === GOLDEN[id].length,
+          `${id}: ${panel.points.length} puntos, esperaba ${GOLDEN[id].length}`);
+        panel.points.forEach((q, i) => {
+          const [gx, gy] = GOLDEN[id][i];
+          assert(near(q.x, gx, 1e-3) && near(q.y, gy, 1e-3),
+            `${id}[${i}]: (${q.x}, ${q.y}), esperaba (${gx}, ${gy})`);
+        });
+      }
+    });
+
     check('buildBox con parámetros válidos no produce errores', () => {
       assert(box.errors.length === 0, box.errors.join(' | '));
       assert(box.panels.length === 6, 'esperaba 6 paneles');
