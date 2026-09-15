@@ -94,24 +94,47 @@ export function buildSlidingBox(params) {
   // superior de la pared, así que z se lee al revés.
   const grooveY = wallHeight - grooveTop;
 
-  const sideWall = (id, label) => ({
-    id,
-    label,
-    width: spanY,
-    height: wallHeight,
-    edges: {
-      top: { gender: 'plain' },
-      bottom: { gender: 'female', ...SOLID },
-      left: { gender: 'male', jointStart: t, jointSpan: spanZFront, ...SOLID },
-      right: { gender: 'male', jointStart: t, jointSpan: spanZBack, ...SOLID },
-    },
-    features: [pocketFeature({
-      id: 'groove',
-      x: 0, y: grooveY,
-      width: spanY, height: grooveHeight,
-      depth: p,
-    })],
-  });
+  // Los dos laterales NO son la misma pieza: son espejo uno del otro. El canal
+  // va en la cara interior, y una pieza grabada sólo tiene canal en una cara; si
+  // se emitieran idénticas habría que girar una 180° para meter su canal hacia
+  // dentro, y ese giro intercambia el frente con el fondo. Mirando cada cara
+  // interior desde dentro de la caja, en el lateral izquierdo el frente queda a
+  // la izquierda del dibujo y en el derecho queda a la derecha. Como el frente
+  // es más bajo que el fondo, sus juntas verticales miden distinto, así que
+  // equivocar el lado le presentaría al frente la junta del fondo y la caja no
+  // montaría. En la caja cerrada esto no pasaba porque ambas juntas medían igual.
+  // La arista 'left' recorre la pieza de piso hacia arriba (su u coincide con z
+  // sin importar cuánto mida la pieza), pero 'right' recorre de arriba hacia
+  // abajo: su jointStart se cuenta desde el CANTO SUPERIOR PROPIO. El fondo y
+  // los laterales comparten alto (wallHeight), así que ahí da igual qué arista
+  // toque a cuál. El frente es más bajo, así que cuando su junta cae en la
+  // arista 'right' de un lateral (el lateral derecho, con este espejo) hay que
+  // correr el arranque el sobrante de altura entre lateral y frente para que
+  // siga midiéndose desde el piso; si no, la espiga sube 6+ mm y queda al aire.
+  const sideWall = (id, label, frontEdge) => {
+    const backEdge = frontEdge === 'left' ? 'right' : 'left';
+    const frontJointStart = frontEdge === 'left' ? t : wallHeight - t - spanZFront;
+    return {
+      id,
+      label,
+      width: spanY,
+      height: wallHeight,
+      edges: {
+        top: { gender: 'plain' },
+        bottom: { gender: 'female', ...SOLID },
+        [frontEdge]: { gender: 'male', jointStart: frontJointStart, jointSpan: spanZFront, ...SOLID },
+        [backEdge]: { gender: 'male', jointStart: t, jointSpan: spanZBack, ...SOLID },
+      },
+      // El canal recorre la pieza entera, así que es simétrico y no cambia con
+      // el espejo: es lo único de la pieza que sí puede ser idéntico en ambos.
+      features: [pocketFeature({
+        id: 'groove',
+        x: 0, y: grooveY,
+        width: spanY, height: grooveHeight,
+        depth: p,
+      })],
+    };
+  };
 
   const specs = [
     {
@@ -134,7 +157,7 @@ export function buildSlidingBox(params) {
         right: { gender: 'female', jointStart: t, jointSpan: spanZFront, ...SOLID },
       },
     },
-    sideWall('left', 'LEFT'),
+    sideWall('left', 'LEFT', 'left'),
     {
       id: 'lid', label: 'LID',
       width: spanX + 2 * grip,
@@ -165,7 +188,7 @@ export function buildSlidingBox(params) {
         depth: p,
       })],
     },
-    sideWall('right', 'RIGHT'),
+    sideWall('right', 'RIGHT', 'right'),
   ];
 
   const material = { thickness: t, kerf, tabWidth };

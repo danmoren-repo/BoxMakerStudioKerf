@@ -514,9 +514,9 @@
       // arista 'left' es la que mira al frente y 'right' la que mira al fondo.
       const pairs = [
         ['front', 'left', 'left', 'left'],
-        ['front', 'right', 'right', 'left'],
+        ['front', 'right', 'right', 'right'],
         ['back', 'left', 'left', 'right'],
-        ['back', 'right', 'right', 'right'],
+        ['back', 'right', 'right', 'left'],
         ['front', 'bottom', 'bottom', 'top'],
         ['back', 'bottom', 'bottom', 'bottom'],
         ['left', 'bottom', 'bottom', 'left'],
@@ -533,10 +533,39 @@
         if (femaleSpan !== null && maleSpan !== null) {
           assert(near(femaleSpan, maleSpan),
             `${pair}: tramos distintos, ${femaleSpan} vs ${maleSpan}`);
+          // 'left'/'top' recorren la arista en línea recta (u crece con z o x); 'right'/
+          // 'bottom' caminan al revés, así que su jointStart se mide desde el extremo
+          // lejano y depende del tamaño propio de la pieza. Comparar el jointStart crudo
+          // entre una arista 'right' y una 'left' — o entre dos 'right' de piezas de alto
+          // distinto, como el lateral derecho contra el frente — compara cosas que no
+          // están en el mismo sistema; hay que traducir las dos al mismo origen antes.
+          const globalStart = (panel, edgeKey, spec) => {
+            const start = spec.jointStart ?? 0;
+            const own = (edgeKey === 'left' || edgeKey === 'right') ? panel.height : panel.width;
+            return (edgeKey === 'left' || edgeKey === 'top') ? start : own - start - spec.jointSpan;
+          };
+          const femaleStart = globalStart(sp(femaleId), femaleEdge, female);
+          const maleStart = globalStart(sp(maleId), maleEdge, male);
+          assert(near(femaleStart, maleStart),
+            `${pair}: arranques distintos en coordenada global, ${femaleStart} vs ${maleStart}`);
         }
         assert((female.startsSolid ?? false) === (male.startsSolid ?? false),
           `${pair}: fases distintas, la espiga no caería en su ranura`);
       }
+    });
+
+    check('deslizante: los dos laterales son espejo, no la misma pieza', () => {
+      const left = sp('left');
+      const right = sp('right');
+      // Si este par de igualdades no se cumple, un lateral le presenta al frente
+      // la junta del fondo: la caja no monta y en el dibujo no se nota.
+      assert(near(left.edges.left.jointSpan, right.edges.right.jointSpan),
+        `el canto que mira al frente difiere entre laterales: ${left.edges.left.jointSpan} vs ${right.edges.right.jointSpan}`);
+      assert(near(left.edges.right.jointSpan, right.edges.left.jointSpan),
+        `el canto que mira al fondo difiere entre laterales: ${left.edges.right.jointSpan} vs ${right.edges.left.jointSpan}`);
+      // Sin esto el check sería vacuo: con las dos juntas iguales se cumpliría solo.
+      assert(!near(left.edges.left.jointSpan, left.edges.right.jointSpan),
+        'las dos juntas verticales de un lateral deben diferir; si no, este check no prueba nada');
     });
 
     const failed = results.filter((r) => !r.ok);
