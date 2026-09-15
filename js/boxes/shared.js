@@ -31,6 +31,12 @@ export function autoTabWidthFromSpans(spans, thickness) {
   return Math.min(preferred, shortest / 3);
 }
 
+// El kerf contra el grosor NO se valida aquí: en el original va en el mismo
+// lote que los chequeos de dimensiones de cada caja, y una caja inválida por
+// las dos cosas a la vez tiene que seguir mostrando los dos errores. Se exporta
+// el texto para que ese mensaje viva en un solo sitio.
+export const KERF_TOO_BIG = 'El kerf debe ser menor que el grosor del material.';
+
 export function validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho }) {
   const errors = [];
   const positive = (value) => Number.isFinite(value) && value > 0;
@@ -41,9 +47,6 @@ export function validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho }) {
   if (!positive(Lo) || !positive(Wo) || !positive(Ho)) {
     errors.push('Largo, ancho y alto deben ser mayores que 0.');
   }
-  if (errors.length > 0) return errors;
-
-  if (kerf >= t) errors.push('El kerf debe ser menor que el grosor del material.');
   return errors;
 }
 

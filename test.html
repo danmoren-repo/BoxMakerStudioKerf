@@ -385,6 +385,24 @@
       assert(base.points.length > 4, 'la base debería conservar sus espigas');
     });
 
+    check('una caja inválida por varios motivos los reporta todos', () => {
+      // kerf mayor que el grosor Y material demasiado grueso para la caja: el
+      // usuario tiene que ver los dos problemas, no arreglarlos de uno en uno.
+      const broken = buildBox({
+        length: 3, width: 3, height: 3,
+        thickness: 5, kerf: 6, tabWidth: 18,
+        dimensionMode: 'outer',
+      });
+      assert(broken.errors.length === 3,
+        `${broken.errors.length} errores, esperaba 3: ${broken.errors.join(' | ')}`);
+      assert(broken.errors.some((e) => e.includes('El kerf debe ser menor')),
+        'falta el error de kerf');
+      assert(broken.errors.some((e) => e.includes('demasiado grueso')),
+        'falta el error de material demasiado grueso');
+      assert(broken.errors.some((e) => e.includes('no deja pared entre la base')),
+        'falta el error de alto insuficiente');
+    });
+
     const failed = results.filter((r) => !r.ok);
     document.getElementById('summary').textContent =
       failed.length === 0

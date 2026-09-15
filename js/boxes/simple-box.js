@@ -3,6 +3,7 @@ import {
   autoTabWidthFromSpans,
   commonWarnings,
   jointSegments,
+  KERF_TOO_BIG,
   outerDimensions,
   validateBasics,
   validateTabsVsKerf,
@@ -135,6 +136,7 @@ function validate({ Lo, Wo, Ho, spanX, spanY, spanZ, t, kerf, tabWidth, flatLid 
   const errors = validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho });
   if (errors.length > 0) return errors;
 
+  if (kerf >= t) errors.push(KERF_TOO_BIG);
   if (spanX <= 0 || spanY <= 0) {
     errors.push(
       `El material de ${t} mm es demasiado grueso para una caja de ${Lo} × ${Wo} mm: no queda espacio para la tapa.`,

@@ -167,7 +167,8 @@ Refactor puro, sin cambio de comportamiento: lo que los dos generadores van a co
   - `outerDimensions({ length, width, height, thickness, dimensionMode }, heightPad?) → { Lo, Wo, Ho }`
   - `jointSegments(span, targetTabWidth) → { count, width, tabs }`
   - `autoTabWidthFromSpans(spans: number[], thickness) → number`
-  - `validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho }) → string[]`
+  - `KERF_TOO_BIG: string` — el texto del error de kerf, para que viva en un solo sitio aunque lo empuje cada caja
+  - `validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho }) → string[]` — sólo los campos no positivos; el kerf contra el grosor lo comprueba cada caja junto a sus dimensiones
   - `validateTabsVsKerf(spans: [string, number][], tabWidth, kerf) → string[]`
   - `commonWarnings({ jointWidths: number[], t, kerf, tabWidth }) → string[]`
   - `simple-box.js` mantiene sus exports actuales: `buildBox(params)` y `autoTabWidth(params)`.
@@ -210,6 +211,12 @@ export function autoTabWidthFromSpans(spans, thickness) {
   return Math.min(preferred, shortest / 3);
 }
 
+// El kerf contra el grosor NO se valida aquí: en el original va en el mismo
+// lote que los chequeos de dimensiones de cada caja, y una caja inválida por
+// las dos cosas a la vez tiene que seguir mostrando los dos errores. Se exporta
+// el texto para que ese mensaje viva en un solo sitio.
+export const KERF_TOO_BIG = 'El kerf debe ser menor que el grosor del material.';
+
 export function validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho }) {
   const errors = [];
   const positive = (value) => Number.isFinite(value) && value > 0;
@@ -220,9 +227,6 @@ export function validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho }) {
   if (!positive(Lo) || !positive(Wo) || !positive(Ho)) {
     errors.push('Largo, ancho y alto deben ser mayores que 0.');
   }
-  if (errors.length > 0) return errors;
-
-  if (kerf >= t) errors.push('El kerf debe ser menor que el grosor del material.');
   return errors;
 }
 
@@ -277,6 +281,7 @@ import {
   autoTabWidthFromSpans,
   commonWarnings,
   jointSegments,
+  KERF_TOO_BIG,
   outerDimensions,
   validateBasics,
   validateTabsVsKerf,
@@ -316,6 +321,7 @@ function validate({ Lo, Wo, Ho, spanX, spanY, spanZ, t, kerf, tabWidth, flatLid 
   const errors = validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho });
   if (errors.length > 0) return errors;
 
+  if (kerf >= t) errors.push(KERF_TOO_BIG);
   if (spanX <= 0 || spanY <= 0) {
     errors.push(
       `El material de ${t} mm es demasiado grueso para una caja de ${Lo} × ${Wo} mm: no queda espacio para la tapa.`,
@@ -722,6 +728,7 @@ import {
   autoTabWidthFromSpans,
   commonWarnings,
   jointSegments,
+  KERF_TOO_BIG,
   outerDimensions,
   validateBasics,
   validateTabsVsKerf,
@@ -1141,6 +1148,9 @@ function validate({
   if (!positive(p)) errors.push('La profundidad del canal debe ser mayor que 0.');
   if (errors.length > 0) return errors;
 
+  // Kerf y geometría van en un solo lote: una caja inválida por varios motivos
+  // los muestra todos, en vez de obligar a arreglarlos de uno en uno.
+  if (kerf >= t) errors.push(KERF_TOO_BIG);
   if (p >= t) {
     errors.push(`Un canal de ${p} mm atraviesa una pared de ${t} mm. Baja la profundidad del canal.`);
   }
