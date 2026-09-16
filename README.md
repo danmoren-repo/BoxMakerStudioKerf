@@ -35,7 +35,7 @@ Luego abre http://localhost:8000 en el navegador.
 | Auto (ancho de espiga) | activado | Cuando está activo, calcula el ancho de la espiga (tab) por ti con la regla de abajo. Desactívalo para fijar un valor manual. |
 | Ancho de espiga / tab (mm) | 18 (solo se usa si Auto está apagado) | Con Auto activo se ignora este valor y se recalcula. |
 
-**Regla del ancho de espiga automático** (`autoTabWidth` en `js/boxes/simple-box.js`): aproximadamente 3 veces el grosor del material, nunca por debajo de 6 mm, y siempre lo bastante pequeño para que la arista más corta de la caja quede con al menos 3 segmentos de espiga.
+**Regla del ancho de espiga automático** (`autoTabWidthFromSpans` en `js/boxes/shared.js`, que cada tipo de caja llama con sus propias aristas): aproximadamente 3 veces el grosor del material, nunca por debajo de 6 mm, y siempre lo bastante pequeño para que la arista más corta de la caja quede con al menos 3 segmentos de espiga.
 
 ## Cómo se corta
 
@@ -61,9 +61,9 @@ Está separado así para que un futuro tipo de caja (por ejemplo una con tapa de
 
 ## Verificación
 
-Con el servidor local corriendo, abre http://localhost:8000/test.html. Es una página de self-checks que corre en el navegador y muestra una lista con cada prueba en verde (✔) o rojo (✘). Actualmente son **41 checks** (los de geometría corren sobre los tres tipos de tapa): cubren desde que `buildBox` no produzca errores con parámetros válidos, la segmentación de juntas, que las espigas macho encajen exactamente en las ranuras hembra, el efecto del kerf, el modo de medidas interiores, el ancho de espiga automático, hasta un barrido de combinaciones de parámetros para asegurarse de que nada produzca `NaN`.
+Con el servidor local corriendo, abre http://localhost:8000/test.html. Es una página de self-checks que corre en el navegador y muestra una lista con cada prueba en verde (✔) o rojo (✘). Actualmente son **42 checks** (los de geometría corren sobre los tres tipos de tapa): cubren desde que `buildBox` no produzca errores con parámetros válidos, la segmentación de juntas, que las espigas macho encajen exactamente en las ranuras hembra, el efecto del kerf, el modo de medidas interiores, el ancho de espiga automático, hasta un barrido de combinaciones de parámetros para asegurarse de que nada produzca `NaN`.
 
-Cinco de esos checks vigilan específicamente las esquinas, que es donde este tipo de generador se rompe: que ninguna pieza tenga material más fino que el kerf (sería incortable), que las esquinas de las tapas frontales queden macizas, que una ranura que llega al borde lo haga sin dejar una lengüeta de medio kerf, que ningún contorno se doble sobre sí mismo (una línea recorrida dos veces = el láser cortando dos veces sobre el mismo sitio), y que ninguna esquina quede sujeta por un puente de material más fino que el kerf (se caería al cortar).
+Seis de esos checks vigilan específicamente las esquinas, que es donde este tipo de generador se rompe: que ninguna pieza tenga material más fino que el kerf (sería incortable), que las esquinas de las tapas frontales queden macizas, que una ranura que llega al borde lo haga sin dejar una lengüeta de medio kerf, que ningún contorno se doble sobre sí mismo (una línea recorrida dos veces = el láser cortando dos veces sobre el mismo sitio), que ninguna esquina quede sujeta por un puente de material más fino que el kerf (se caería al cortar), y que ninguna espiga del lateral invada la esquina por donde tiene que entrar la tapa deslizante (la tapa se quedaría a medio camino).
 
 ## Deploy a Cloudflare Pages
 

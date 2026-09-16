@@ -201,7 +201,7 @@ export function buildSlidingBox(params) {
     errors,
     warnings: warningsFor({
       jointWidths: [joints.x.width, joints.y.width, joints.z.width, joints.zBack.width],
-      t, kerf, tabWidth, p, h, tl,
+      t, kerf, tabWidth, p, h, tl, backSegment: joints.zBack.width,
       lidWidth: lid.width, lidDepth: lid.height,
     }),
     outer: { length: Lo, width: Wo, height: Ho },
@@ -260,10 +260,26 @@ function validate({
     tabWidth,
     kerf,
   ));
+
+  // La espiga del lateral asoma dentro del fondo justo por donde tiene que
+  // pasar la esquina trasera de la tapa, y ahí no hay canal que la libere: el
+  // canal del lateral recorre el cuerpo de la pieza, no sus espigas. Lo que
+  // deja el hueco libre es que la junta arranca sin espiga (startsSolid), así
+  // que bajo el canto superior queda un tramo entero de material sin asomar.
+  // Si ese tramo es más corto que la banda del canal, la espiga tapa el paso y
+  // la tapa se queda a medio entrar. Con tapa del mismo grosor que la pared y
+  // espiga automática el tramo mide ~3 grosores y sobra; muerde con tapas
+  // gruesas sobre paredes finas, o con un ancho de espiga manual pequeño.
+  const backSegment = jointSegments(spanZBack, tabWidth).width;
+  if (backSegment < tl + h) {
+    errors.push(
+      `Las espigas del fondo miden ${backSegment.toFixed(2)} mm y el canal de la tapa ocupa ${(tl + h).toFixed(2)} mm: la espiga del lateral tapa la esquina por donde entra la tapa. Sube el ancho de espiga, baja el grosor de la tapa o baja la holgura. Puede hacer falta más de una: el ancho de espiga tiene techo, porque la junta nunca baja de cinco tramos.`,
+    );
+  }
   return errors;
 }
 
-function warningsFor({ jointWidths, t, kerf, tabWidth, p, h, tl, lidWidth, lidDepth }) {
+function warningsFor({ jointWidths, t, kerf, tabWidth, p, h, tl, lidWidth, lidDepth, backSegment }) {
   const warnings = commonWarnings({ jointWidths, t, kerf, tabWidth });
   const behind = t - p;
   const narrowestLid = Math.min(lidWidth, lidDepth);
@@ -286,6 +302,15 @@ function warningsFor({ jointWidths, t, kerf, tabWidth, p, h, tl, lidWidth, lidDe
   }
   if (t < 2) {
     warnings.push(`El reborde sobre el canal vale un grosor (${t} mm) y queda frágil.`);
+  }
+  // La espiga acaba en su medida nominal, así que un margen positivo ya deja
+  // pasar la tapa. Pero un margen por debajo del kerf es del tamaño del error
+  // de la propia máquina: pasa, y raspa.
+  const clearsTab = backSegment - (tl + h);
+  if (clearsTab >= 0 && clearsTab < kerf) {
+    warnings.push(
+      `La esquina de la tapa pasa a ${clearsTab.toFixed(2)} mm de la espiga del lateral, menos que el kerf (${kerf} mm): va a rozar. Sube el ancho de espiga.`,
+    );
   }
   return warnings;
 }

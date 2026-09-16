@@ -90,6 +90,36 @@ canales a la vez. Donde esa zona coincide con una ranura de espiga del fondo,
 el canal queda sobre un hueco y simplemente no hay nada que vaciar. No
 debilita la junta.
 
+**Corregido 2026-09-16.** El párrafo anterior razonaba sobre el material del
+fondo y se olvidaba de lo que llena ese hueco: la espiga del lateral, que
+asoma ahí a grosor completo. El canal del lateral recorre el cuerpo de la
+pieza, no sus espigas, así que esa espiga no está rebajada y puede tapar el
+sitio por el que tiene que pasar la esquina trasera de la tapa. Lo que salva a
+la caja es que la junta lateral↔fondo arranca sin espiga (`startsSolid`): bajo
+el canto superior queda un tramo entero sin material asomado. La condición es
+exacta —el canto superior de esa junta cae justo en `grooveTop`— y es:
+
+    tramo de la junta del fondo ≥ tl + h
+
+Con tapa del mismo grosor que la pared y espiga automática el tramo mide unos
+`3t` y sobra. Muerde con tapa gruesa sobre pared fina (10 mm de tapa sobre
+3 mm de pared) y con anchos de espiga manuales pequeños. **Es un error de
+generación, no un aviso**: la tapa no entra, y el dibujo no lo delata.
+
+La condición se mide en la pieza, no en el dibujo. La espiga macho se **dibuja**
+un kerf más ancha para que, comido el medio kerf a cada lado, quede en la medida
+nominal; así que en el SVG la espiga asoma medio kerf dentro de la banda del
+canal y eso no es material, es la compensación. Medir el polígono dibujado y
+llamarlo interferencia daría por mala toda junta del repo, empezando por la caja
+de 80×80×80 que se cortó y encajó perfecta. Lo que sí se avisa es un margen
+positivo pero **menor que un kerf**: pasa, pero del orden del error de la propia
+máquina, así que va a rozar.
+
+El ancho de espiga no es palanca ilimitada: `computeSegments` nunca baja de
+cinco tramos con `startsSolid`, así que el tramo tiene techo en `spanZBack / 5`.
+Con holguras grandes puede hacer falta mover también el grosor de la tapa o la
+holgura; el mensaje de error nombra las tres.
+
 ### Tapa
 
 - Agarre real en cada canal: `e = p − h`

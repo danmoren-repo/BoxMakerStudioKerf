@@ -41,6 +41,15 @@
       dimensionMode: 'outer',
     };
     const FLAT = { ...BASE, lidType: 'flat' };
+    const SLIDE = {
+      length: 80, width: 80, height: 80,
+      thickness: 3, kerf: 0.16, tabWidth: 12,
+      dimensionMode: 'outer', lidType: 'sliding',
+      slideClearance: 0.2,
+    };
+    // Los checks de geometría corren sobre los tres tipos de tapa, y cada tipo
+    // lo arma un módulo distinto.
+    const buildAny = (cfg) => (cfg.lidType === 'sliding' ? buildSlidingBox(cfg) : buildBox(cfg));
     const box = buildBox(BASE);
     const panel = (id) => box.panels.find((p) => p.id === id);
     const t = BASE.thickness;
@@ -119,8 +128,8 @@
     });
 
     check('ninguna pieza tiene material más fino que el kerf (nada incortable)', () => {
-      for (const cfg of [BASE, FLAT]) {
-        for (const p of buildBox(cfg).panels) {
+      for (const cfg of [BASE, FLAT, SLIDE, { ...SLIDE, thickness: 6, lidThickness: 3, tabWidth: 18 }]) {
+        for (const p of buildAny(cfg).panels) {
           for (let i = 0; i < p.points.length; i++) {
             const a = p.points[i];
             const b = p.points[(i + 1) % p.points.length];
@@ -139,9 +148,12 @@
         { ...BASE, thickness: 6, tabWidth: 20 },
         FLAT,
         { ...FLAT, kerf: 0.4, tabWidth: 25, length: 250, width: 200, height: 100 },
+        SLIDE,
+        { ...SLIDE, kerf: 0.4, tabWidth: 25, length: 250, width: 200, height: 100 },
+        { ...SLIDE, thickness: 6, lidThickness: 3, tabWidth: 18 },
       ];
       for (const cfg of configs) {
-        const result = buildBox(cfg);
+        const result = buildAny(cfg);
         if (result.errors.length > 0) continue;
         for (const p of result.panels) {
           const pts = p.points, n = pts.length;
@@ -163,8 +175,9 @@
       // aíslan el bloque de la esquina: solo lo sujeta lo que sobra por dentro
       // de la profundidad de la ranura. Si eso es menor que el kerf, la esquina
       // se cae al cortar.
-      for (const cfg of [BASE, { ...BASE, kerf: 0.4, tabWidth: 25 }, FLAT, { ...FLAT, kerf: 0.4, tabWidth: 25 }]) {
-        const result = buildBox(cfg);
+      for (const cfg of [BASE, { ...BASE, kerf: 0.4, tabWidth: 25 }, FLAT, { ...FLAT, kerf: 0.4, tabWidth: 25 },
+                         SLIDE, { ...SLIDE, thickness: 6, lidThickness: 3, tabWidth: 18 }]) {
+        const result = buildAny(cfg);
         if (result.errors.length > 0) continue;
         for (const p of result.panels) {
           const corners = [
@@ -446,12 +459,6 @@
       assert(!svg.querySelector('#engrave'), 'apareció una capa de grabado sin nada dentro');
     });
 
-    const SLIDE = {
-      length: 80, width: 80, height: 80,
-      thickness: 3, kerf: 0.16, tabWidth: 12,
-      dimensionMode: 'outer', lidType: 'sliding',
-      slideClearance: 0.2,
-    };
     const slide = buildSlidingBox(SLIDE);
     const sp = (id) => slide.panels.find((p) => p.id === id);
 
@@ -631,6 +638,59 @@
         'la tapa no lleva canal');
     });
 
+    check('en el dibujo, la espiga del lateral sólo invade el paso de la tapa lo que se come el haz', () => {
+      // La espiga se DIBUJA un kerf más ancha para que, comido su medio kerf a
+      // cada lado, la pieza quede en la medida nominal. Por eso en el dibujo
+      // asoma medio kerf dentro de la banda de la tapa: eso no es material, es
+      // la compensación. Más de medio kerf sí sería espiga de verdad metida en
+      // el paso, y la tapa se quedaría a medio entrar.
+      // Se mide sobre los puntos del panel, no sobre la fórmula que los generó.
+      // El barrido cruza la frontera en pasos de 0.02 mm, más finos que el medio
+      // kerf de 0.08: si la validación se cayera, las cajas del otro lado se
+      // generarían y este assert las cazaría.
+      const configs = [
+        SLIDE,
+        { ...SLIDE, thickness: 6, lidThickness: 3, tabWidth: 18 },
+        { ...SLIDE, length: 150, width: 100, height: 90, thickness: 10, lidThickness: 6, tabWidth: 30 },
+        { ...SLIDE, dimensionMode: 'inner', length: 60, width: 60, height: 40, tabWidth: 10 },
+        { ...SLIDE, slideClearance: 0.5 },
+      ];
+      for (let tl = 10.6; tl <= 11.06; tl += 0.02) {
+        configs.push({ ...SLIDE, lidThickness: Number(tl.toFixed(2)) });
+      }
+
+      let generadas = 0;
+      let bloqueadas = 0;
+      for (const cfg of configs) {
+        const r = buildSlidingBox(cfg);
+        if (r.errors.length > 0) { bloqueadas += 1; continue; }
+        generadas += 1;
+        const wallHeight = r.realOuterHeight;
+        const lidLow = r.groove.floor;
+        const lidHigh = r.groove.floor + r.lid.thickness;
+        for (const [id, beyond] of [
+          ['left', (pt, w) => pt.x > w + TOL],
+          ['right', (pt) => pt.x < -TOL],
+        ]) {
+          const panel = r.panels.find((x) => x.id === id);
+          const pts = panel.points;
+          for (let i = 0; i < pts.length; i++) {
+            const a = pts[i];
+            const b = pts[(i + 1) % pts.length];
+            if (!beyond(a, panel.width) || !beyond(b, panel.width)) continue;
+            const z1 = Math.min(wallHeight - a.y, wallHeight - b.y);
+            const z2 = Math.max(wallHeight - a.y, wallHeight - b.y);
+            const invade = Math.min(z2, lidHigh) - Math.max(z1, lidLow);
+            assert(invade <= cfg.kerf / 2 + TOL,
+              `${id} (t=${cfg.thickness}, tapa=${r.lid.thickness}): una espiga invade ${invade.toFixed(4)} mm del paso de la tapa, más que el medio kerf (${(cfg.kerf / 2).toFixed(3)})`);
+          }
+        }
+      }
+      // Si el barrido cayera entero a un lado de la frontera no probaría nada.
+      assert(generadas >= 8 && bloqueadas >= 8,
+        `el barrido no cruza la frontera: ${generadas} generadas, ${bloqueadas} bloqueadas`);
+    });
+
     check('deslizante: errores que bloquean la generación', () => {
       const cases = [
         ['canal tan profundo como la pared', { grooveDepth: 3, grooveDepthAuto: false }, 'atraviesa'],
@@ -638,6 +698,8 @@
         ['caja más baja que su tapa', { height: 2 }, 'más baja'],
         ['sin pared para las espigas del frente', { height: 8 }, 'espigas'],
         ['grosor de tapa inválido', { lidThickness: -1, thickness: 3 }, 'tapa'],
+        ['tapa gruesa contra la espiga del lateral', { lidThickness: 10, height: 90, tabWidth: 8 }, 'esquina por donde entra'],
+        ['espiga manual demasiado corta para la tapa', { tabWidth: 3 }, 'esquina por donde entra'],
       ];
       for (const [name, override, fragment] of cases) {
         const r = buildSlidingBox({ ...SLIDE, ...override });
@@ -654,6 +716,7 @@
         ['holgura grande', { slideClearance: 0.8 }, 'bailar'],
         ['poca pared detrás del canal', { thickness: 2.5, kerf: 0.16, tabWidth: 8 }, 'pared'],
         ['tapa que pandea', { length: 400, width: 400, tabWidth: 24 }, 'pandear'],
+        ['la tapa pasa raspando la espiga del lateral', { lidThickness: 10.8 }, 'rozar'],
       ];
       for (const [name, override, fragment] of cases) {
         const r = buildSlidingBox({ ...SLIDE, ...override });
