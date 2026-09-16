@@ -286,3 +286,14 @@ button:focus-visible {
     overflow-y: visible;
   }
 }
+
+.sliding-fields {
+  border-left: 2px solid #e5484d;
+  padding-left: .75rem;
+}
+
+.engrave-note {
+  margin: .75rem 0 0;
+  font-size: .85rem;
+  color: #e5484d;
+}
