@@ -1376,18 +1376,34 @@ Y en la zona de preview, reemplazar `<div id="preview"></div>` por:
 
 - [ ] **Step 2: Darles estilo mínimo**
 
-Al final de `css/styles.css`, añadir:
+El archivo trabaja con tokens de color y tiene un juego para claro y otro para oscuro. El rojo del grabado necesita el suyo: reutilizar `--error-*` haría que una instrucción neutral se leyera como un error de validación. El borde se queda en el rojo exacto del SVG para que la vista lo asocie con los rectángulos del dibujo; el texto usa un tono con contraste suficiente en cada tema.
+
+En el bloque `:root` de arriba, junto a los otros tokens, añadir:
+
+```css
+  --engrave-border: #e5484d;
+  --engrave-text: #a3262b;
+```
+
+Y dentro del `@media (prefers-color-scheme: dark)`, junto a sus equivalentes:
+
+```css
+    --engrave-border: #e05656;
+    --engrave-text: #f7a8a8;
+```
+
+Al final de `css/styles.css`, añadir (en `px`, como el resto del archivo):
 
 ```css
 .sliding-fields {
-  border-left: 2px solid #e5484d;
-  padding-left: .75rem;
+  border-left: 2px solid var(--engrave-border);
+  padding-left: 12px;
 }
 
 .engrave-note {
-  margin: .75rem 0 0;
-  font-size: .85rem;
-  color: #e5484d;
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--engrave-text);
 }
 ```
 
