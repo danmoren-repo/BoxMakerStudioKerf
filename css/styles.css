@@ -14,6 +14,8 @@
   --error-bg: #fdecec;
   --error-border: #d33a3a;
   --error-text: #8a1f1f;
+  --engrave-border: #e5484d;
+  --engrave-text: #a3262b;
   --preview-bg: #e7e9ee;
   --preview-checker: #dcdfe6;
   --focus-ring: #2563eb;
@@ -36,6 +38,8 @@
     --error-bg: #3a1414;
     --error-border: #e05656;
     --error-text: #f7a8a8;
+    --engrave-border: #e05656;
+    --engrave-text: #f7a8a8;
     --preview-bg: #0f1115;
     --preview-checker: #1a1d24;
     --focus-ring: #5a97f8;
@@ -288,12 +292,12 @@ button:focus-visible {
 }
 
 .sliding-fields {
-  border-left: 2px solid #e5484d;
-  padding-left: .75rem;
+  border-left: 2px solid var(--engrave-border);
+  padding-left: 12px;
 }
 
 .engrave-note {
-  margin: .75rem 0 0;
-  font-size: .85rem;
-  color: #e5484d;
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--engrave-text);
 }
