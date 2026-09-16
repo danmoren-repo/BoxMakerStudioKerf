@@ -631,6 +631,40 @@
         'la tapa no lleva canal');
     });
 
+    check('deslizante: errores que bloquean la generación', () => {
+      const cases = [
+        ['canal tan profundo como la pared', { grooveDepth: 3, grooveDepthAuto: false }, 'atraviesa'],
+        ['holgura mayor que el canal', { slideClearance: 2 }, 'agarrarse'],
+        ['caja más baja que su tapa', { height: 2 }, 'más baja'],
+        ['sin pared para las espigas del frente', { height: 8 }, 'espigas'],
+        ['grosor de tapa inválido', { lidThickness: -1, thickness: 3 }, 'tapa'],
+      ];
+      for (const [name, override, fragment] of cases) {
+        const r = buildSlidingBox({ ...SLIDE, ...override });
+        assert(r.errors.length > 0, `${name}: no produjo error`);
+        assert(r.panels.length === 0, `${name}: devolvió piezas pese al error`);
+        assert(r.errors.some((e) => e.toLowerCase().includes(fragment)),
+          `${name}: esperaba un error con "${fragment}", salió: ${r.errors.join(' | ')}`);
+      }
+    });
+
+    check('deslizante: avisos que no bloquean', () => {
+      const cases = [
+        ['holgura en 0', { slideClearance: 0 }, 'presión'],
+        ['holgura grande', { slideClearance: 0.8 }, 'bailar'],
+        ['poca pared detrás del canal', { thickness: 2.5, kerf: 0.16, tabWidth: 8 }, 'pared'],
+        ['tapa que pandea', { length: 400, width: 400, tabWidth: 24 }, 'pandear'],
+      ];
+      for (const [name, override, fragment] of cases) {
+        const r = buildSlidingBox({ ...SLIDE, ...override });
+        assert(r.errors.length === 0, `${name}: debía generar, pero dio ${r.errors.join(' | ')}`);
+        assert(r.warnings.some((w) => w.toLowerCase().includes(fragment)),
+          `${name}: esperaba un aviso con "${fragment}", salió: ${r.warnings.join(' | ') || '(ninguno)'}`);
+      }
+      assert(slide.warnings.length === 0,
+        `la caja canónica no debería avisar nada: ${slide.warnings.join(' | ')}`);
+    });
+
     const failed = results.filter((r) => !r.ok);
     document.getElementById('summary').textContent =
       failed.length === 0

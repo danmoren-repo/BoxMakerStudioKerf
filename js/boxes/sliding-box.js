@@ -212,10 +212,80 @@ export function buildSlidingBox(params) {
   };
 }
 
-function validate() {
-  return [];
+function validate({
+  Lo, Wo, Ho, t, tl, h, p, kerf, tabWidth,
+  spanX, spanY, spanZFront, spanZBack, frontHeight,
+}) {
+  const errors = validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho });
+  if (errors.length > 0) return errors;
+
+  const positive = (value) => Number.isFinite(value) && value > 0;
+  if (!positive(tl)) errors.push('El grosor de la tapa debe ser mayor que 0.');
+  if (!Number.isFinite(h) || h < 0) errors.push('La holgura de deslizamiento no puede ser negativa.');
+  if (!positive(p)) errors.push('La profundidad del canal debe ser mayor que 0.');
+  if (errors.length > 0) return errors;
+
+  // Kerf y geometría van en un solo lote: una caja inválida por varios motivos
+  // los muestra todos, en vez de obligar a arreglarlos de uno en uno.
+  if (kerf >= t) errors.push(KERF_TOO_BIG);
+  if (p >= t) {
+    errors.push(`Un canal de ${p} mm atraviesa una pared de ${t} mm. Baja la profundidad del canal.`);
+  }
+  if (h >= p) {
+    errors.push(
+      `Con una holgura de ${h} mm y un canal de ${p} mm de profundidad, la tapa no llega a agarrarse en la ranura.`,
+    );
+  }
+  if (spanX <= 0 || spanY <= 0) {
+    errors.push(
+      `El material de ${t} mm es demasiado grueso para una caja de ${Lo} × ${Wo} mm: no queda espacio dentro.`,
+    );
+  }
+  if (frontHeight <= 0) {
+    errors.push(`Una caja de ${Ho} mm de alto es más baja que su propia tapa de ${tl} mm.`);
+  } else if (spanZFront <= 0) {
+    errors.push(
+      `El frente queda de ${frontHeight.toFixed(1)} mm: no deja pared entre la base y el canal para las espigas.`,
+    );
+  }
+  if (errors.length > 0) return errors;
+
+  errors.push(...validateTabsVsKerf(
+    [
+      ['largo', spanX],
+      ['ancho', spanY],
+      ['alto del frente', spanZFront],
+      ['alto del fondo', spanZBack],
+    ],
+    tabWidth,
+    kerf,
+  ));
+  return errors;
 }
 
-function warningsFor({ jointWidths, t, kerf, tabWidth }) {
-  return commonWarnings({ jointWidths, t, kerf, tabWidth });
+function warningsFor({ jointWidths, t, kerf, tabWidth, p, h, tl, lidWidth, lidDepth }) {
+  const warnings = commonWarnings({ jointWidths, t, kerf, tabWidth });
+  const behind = t - p;
+  const narrowestLid = Math.min(lidWidth, lidDepth);
+
+  if (behind < 1.5) {
+    warnings.push(
+      `Detrás del canal quedan ${behind.toFixed(2)} mm de pared: puede reventar al meter la tapa.`,
+    );
+  }
+  if (h === 0) {
+    warnings.push('Holgura en 0: la tapa entrará a presión y no va a deslizar.');
+  }
+  if (h > 0.5) {
+    warnings.push(`Holgura de ${h} mm: la tapa va a bailar dentro del canal.`);
+  }
+  if (narrowestLid / tl > 60) {
+    warnings.push(
+      `La tapa de ${tl} mm mide ${narrowestLid.toFixed(0)} mm de lado: se va a pandear en el medio.`,
+    );
+  }
+  if (t < 2) {
+    warnings.push(`El reborde sobre el canal vale un grosor (${t} mm) y queda frágil.`);
+  }
+  return warnings;
 }
