@@ -159,45 +159,63 @@ export function buildHingedBox(params) {
   // los valores por defecto) el segmento recto que cierra la muesca cruzaría
   // el propio arco de la espiga, dando un contorno que se cruza a sí mismo.
   const notchWidth = postWidth;
+
+  // Cómo se cierra la muesca sin cruzar el propio arco de la espiga:
+  //
+  // Entra por el hombro exterior (a notchWidth del canto lateral), baja
+  // hasta farY = cy + rh — la altura del punto MÁS ALTO del círculo de la
+  // espiga — y cruza en línea recta hasta (cx, farY). Esa línea es TANGENTE
+  // al círculo: para cualquier x, la distancia al cuadrado desde (x, farY)
+  // hasta el centro (cx, cy) es (x − cx)² + rh² ≥ rh², así que nunca entra
+  // al círculo, sólo lo toca en x = cx (misma cuenta en nearY = cy − rh, el
+  // punto más bajo). Sigue el arco hasta (cx, nearY) y desde ahí sube
+  // derecho por x = cx hasta el canto trasero otra vez. Esa subida tampoco
+  // cruza el arco: la recta x = cx sólo toca el círculo en nearY y farY —
+  // sus dos únicos puntos con esa x — que son justo los vértices donde la
+  // subida empalma con el arco.
+  //
+  // La primera versión enganchaba entrada y salida al MISMO punto (attachX,
+  // Wo): dos tramos verticales a la misma x pero distinta profundidad,
+  // colineares y superpuestos — sellaban el hueco en vez de abrirlo. La
+  // corrección directa (unir ese punto a los dos extremos del arco con
+  // diagonales) tampoco sirve: una diagonal a un punto del círculo que no es
+  // tangente pasa por su interior antes de llegar (verificado a mano, y
+  // también por el agente que retomó este arreglo tras el primer intento).
+  // Sólo las líneas TANGENTES evitan volver a cruzar el arco.
+  //
+  // La subida final llega a (cx, Wo), no a (0, Wo) — x = 0, el canto lateral
+  // de la tapa, queda intacto de punta a punta, sin que la espiga lo toque.
   const buildPegCorner = (isLeft) => {
     const cx = isLeft ? t / 2 : Lo - t / 2;
     const cy = Wo - t - EDGE_MARGIN - rh;
-    const attachX = isLeft ? notchWidth : Lo - notchWidth;
-    // Arco: para la esquina izquierda el cuello sale hacia +x (desde el
-    // disco, que está más cerca del canto), así que se dibuja la mitad del
-    // círculo que mira hacia -x (90°→270°). Para la derecha, al revés.
-    const arc = isLeft ? pegArc(cx, cy, -90, 90) : pegArc(cx, cy, 90, 270);
-    const neckHalf = rh;
-    const nearY = cy - neckHalf;
-    const farY = cy + neckHalf;
-    // El arco de la izquierda recorre nearY -> farY; el de la derecha (barrido
-    // 90°->270°) recorre farY -> nearY, al revés. Los puntos de enganche del
-    // cuello tienen que ir en ese mismo orden o el camino da un salto que no
-    // sigue el arco.
-    return isLeft
-      ? [{ x: attachX, y: nearY }, ...arc, { x: attachX, y: farY }]
-      : [{ x: attachX, y: farY }, ...arc, { x: attachX, y: nearY }];
+    const nearY = cy - rh;
+    const farY = cy + rh;
+    // El arco sale en el orden que pide el recorrido: la izquierda entra
+    // por farY (viniendo del hombro exterior) y sale por nearY (hacia
+    // arriba, derecho por x = cx); la derecha, al revés (entra por nearY,
+    // viniendo derecho por x = cx, y sale por farY, hacia el hombro
+    // exterior).
+    const points = isLeft ? pegArc(cx, cy, 90, -90) : pegArc(cx, cy, 270, 90);
+    return { cx, nearY, farY, points };
   };
 
   const lidWithPegs = () => {
-    const spec = {
-      width: Lo, height: Wo,
-      edges: {
-        top: { gender: 'plain' }, bottom: { gender: 'plain' },
-        left: { gender: 'plain' }, right: { gender: 'plain' },
-      },
-    };
-    const base = panelOutline(spec, material);
-    // base es el rectángulo Lo × Wo en sentido horario: (0,0) (Lo,0) (Lo,Wo) (0,Wo).
-    // Se reconstruye a mano insertando, en el canto trasero (de (Lo,Wo) a
-    // (0,Wo)), la muesca+espiga de la derecha primero y la de la izquierda
-    // después, porque el recorrido va de x=Lo hacia x=0 en ese tramo.
-    const rightPeg = buildPegCorner(false);
-    const leftPeg = buildPegCorner(true);
+    const right = buildPegCorner(false);
+    const left = buildPegCorner(true);
+    // Rectángulo Lo × Wo en sentido horario, con las dos muescas+espiga
+    // injertadas en el canto trasero (de (Lo,Wo) a (0,Wo)): la derecha
+    // primero, la izquierda después, porque el recorrido va de x=Lo hacia
+    // x=0 en ese tramo. Cada una entra derecho por x = cx (sin tocar el
+    // canto lateral) y sale por el hombro exterior a notchWidth del canto,
+    // o al revés — ver el comentario de buildPegCorner.
     return [
       { x: 0, y: 0 }, { x: Lo, y: 0 }, { x: Lo, y: Wo },
-      { x: Lo - notchWidth, y: Wo }, ...rightPeg, { x: Lo - notchWidth, y: Wo },
-      { x: notchWidth, y: Wo }, ...leftPeg, { x: notchWidth, y: Wo },
+      { x: right.cx, y: Wo }, { x: right.cx, y: right.nearY },
+      ...right.points,
+      { x: Lo - notchWidth, y: right.farY }, { x: Lo - notchWidth, y: Wo },
+      { x: notchWidth, y: Wo }, { x: notchWidth, y: left.farY },
+      ...left.points,
+      { x: left.cx, y: Wo },
       { x: 0, y: Wo },
     ];
   };
