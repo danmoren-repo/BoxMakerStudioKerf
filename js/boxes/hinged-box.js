@@ -160,74 +160,80 @@ export function buildHingedBox(params) {
   // el propio arco de la espiga, dando un contorno que se cruza a sí mismo.
   const notchWidth = postWidth;
 
-  // Cómo se cierra la muesca sin cruzar el propio arco de la espiga:
+  // La muesca no es un simple "bulto" pegado al canto: el poste del lateral,
+  // cuando la tapa cierra, sube por encima de Ho en esa esquina (ver más
+  // arriba), así que la tapa necesita ahí un HUECO real — un polígono con
+  // agujero, no sólo un canto que se abolla hacia adentro o hacia afuera.
   //
-  // Entra por el hombro exterior (a notchWidth del canto lateral), baja
-  // hasta farY = cy + rh — la altura del punto MÁS ALTO del círculo de la
-  // espiga — y cruza en línea recta hasta (cx, farY). Esa línea es TANGENTE
-  // al círculo: para cualquier x, la distancia al cuadrado desde (x, farY)
-  // hasta el centro (cx, cy) es (x − cx)² + rh² ≥ rh², así que nunca entra
-  // al círculo, sólo lo toca en x = cx (misma cuenta en nearY = cy − rh, el
-  // punto más bajo). Sigue el arco hasta (cx, nearY).
+  // Tres construcciones anteriores fallaron, cada una encontrada por una
+  // revisión independiente (no a simple vista — con scripts que prueban
+  // cruces, solapes colineares, aristas que rozan un vértice ajeno, picos
+  // adyacentes que se devuelven sobre sí mismos, Y si el disco de la
+  // espiga realmente queda del lado MATERIAL del contorno, no del lado
+  // VACÍO — las primeras tres pasaban las pruebas de cruces pero fallaban
+  // esta última, la más fácil de pasar por alto a mano):
+  //   1. Entrada y salida ancladas al MISMO punto del canto trasero a
+  //      distinta profundidad → aristas colineares superpuestas, sellaban
+  //      el hueco en vez de abrirlo.
+  //   2. Diagonales directas del punto de anclaje a los dos extremos del
+  //      arco → una diagonal a un punto del círculo que no es tangente
+  //      vuelve a entrar al círculo antes de llegar.
+  //   3. Dos líneas tangentes (a nearY y farY) ancladas a DOS puntos
+  //      distintos del canto trasero → sin cruces ni solapes, pero el
+  //      disco de la espiga quedaba del lado VACÍO del contorno (un hueco
+  //      donde debía haber espiga) mientras la muesca "vacía" quedaba
+  //      MATERIAL — el sentido de giro local del hueco era el opuesto al
+  //      que hacía falta, y ningún cambio de qué lado entra o sale primero
+  //      lo arreglaba (se probó exhaustivamente): el hueco necesitaba ser
+  //      un anillo propio, no un simple recorrido de ida y vuelta por el
+  //      mismo canto.
   //
-  // Desde ahí NO sube derecho por x = cx: esa recta sí toca el círculo sólo
-  // en nearY y farY, pero farY queda A MITAD DE CAMINO entre nearY y Wo —
-  // la subida pasaría directo por ese punto, que ya es un vértice de otra
-  // arista (donde el arco empalma con la línea tangente de arriba). Un
-  // vértice ajeno tocado a mitad de una arista no cruza nada en el sentido
-  // clásico, pero sí vuelve la esquina degenerada — el escáner de la Task 4
-  // lo detectó como una arista que pasa por un vértice que no le toca.
+  // Lo que sigue SÍ funciona, verificado con un script que compara cada
+  // par de aristas (cruces, solapes, aristas-sobre-vértice-ajeno, picos) Y
+  // clasifica el centro del disco y el interior de la muesca por
+  // ray-casting: el hueco toca el canto trasero en UN solo punto por
+  // esquina (sin volver a visitarlo — visitarlo dos veces, aunque sea el
+  // mismo punto, es lo que producía el "pico" del intento 3), y desde ahí
+  // se cierra en un solo recorrido: hombro exterior → baja → arco →
+  // (queda ya pegado al canto lateral, sigue derecho). La esquina derecha
+  // usa el orden inverso (empieza pegada al canto lateral, termina en el
+  // hombro exterior) porque el recorrido de la tapa llega primero a la
+  // derecha (justo después de (Lo,Wo)) y a la izquierda al final (justo
+  // antes de (0,Wo)) — no son simétricas, así que no basta con espejar x.
   //
-  // En su lugar, la tangente en nearY cruza hasta innerX — un tercer punto,
-  // distinto de cx y del hombro exterior, más cerca del canto lateral que
-  // cx — y SÓLO ahí sube derecho hasta el canto trasero. Como innerX ≠ cx,
-  // esa subida no pasa por ningún vértice del arco ni de la tangente de
-  // farY. innerX se elige a mitad de camino entre cx y el canto lateral
-  // real (0 o Lo): queda fuera del rango [cx, hombro exterior] que cubre la
-  // tangente de farY, así que tampoco la cruza.
-  //
-  // (Historial: la primera versión enganchaba entrada y salida al MISMO
-  // punto — colineares y superpuestos, sellaban el hueco. La siguiente
-  // (diagonales directas a los extremos del arco) volvía a cruzar el
-  // círculo por no ser tangente. Esta — dos tangentes, tres anclajes
-  // distintos en el canto trasero (hombro exterior, innerX) — es la que
-  // pasó la revisión de un escáner que compara CADA par de aristas, no
-  // sólo cruces transversales sino también solapes colineares y aristas
-  // que pasan por vértices ajenos.)
+  // El sentido del arco (qué extremo es "el primero") no sale de un
+  // argumento general — salió de probar las combinaciones y quedarse con
+  // la que da disco=MATERIAL y muesca=VACÍO. Si se toca esta función, hay
+  // que re-verificar con el mismo tipo de script, no repetir el argumento
+  // de "la tangente nunca cruza el círculo": eso es necesario pero no
+  // alcanza, como demostró el intento 3.
   const buildPegCorner = (isLeft) => {
     const cx = isLeft ? t / 2 : Lo - t / 2;
     const cy = Wo - t - EDGE_MARGIN - rh;
     const nearY = cy - rh;
     const farY = cy + rh;
-    const innerX = isLeft ? cx / 2 : cx + (Lo - cx) / 2;
-    // El arco sale en el orden que pide el recorrido: la izquierda entra
-    // por farY (viniendo del hombro exterior) y sale por nearY (hacia
-    // innerX); la derecha, al revés (entra por nearY, viniendo de innerX,
-    // y sale por farY, hacia el hombro exterior).
-    const points = isLeft ? pegArc(cx, cy, 90, -90) : pegArc(cx, cy, 270, 90);
-    return { cx, nearY, farY, innerX, points };
-  };
-
-  const lidWithPegs = () => {
-    const right = buildPegCorner(false);
-    const left = buildPegCorner(true);
-    // Rectángulo Lo × Wo en sentido horario, con las dos muescas+espiga
-    // injertadas en el canto trasero (de (Lo,Wo) a (0,Wo)): la derecha
-    // primero, la izquierda después, porque el recorrido va de x=Lo hacia
-    // x=0 en ese tramo. Cada una sube derecho por innerX (sin tocar el
-    // canto lateral) y sale por el hombro exterior a notchWidth del canto,
-    // o al revés — ver el comentario de buildPegCorner.
+    if (isLeft) {
+      return [
+        { x: notchWidth, y: Wo },
+        { x: notchWidth, y: nearY },
+        ...pegArc(cx, cy, -90, 90), // nearY -> farY, bultea hacia +x
+        { x: cx, y: Wo },
+      ];
+    }
     return [
-      { x: 0, y: 0 }, { x: Lo, y: 0 }, { x: Lo, y: Wo },
-      { x: right.innerX, y: Wo }, { x: right.innerX, y: right.nearY },
-      ...right.points,
-      { x: Lo - notchWidth, y: right.farY }, { x: Lo - notchWidth, y: Wo },
-      { x: notchWidth, y: Wo }, { x: notchWidth, y: left.farY },
-      ...left.points,
-      { x: left.innerX, y: left.nearY }, { x: left.innerX, y: Wo },
-      { x: 0, y: Wo },
+      { x: cx, y: Wo },
+      ...pegArc(cx, cy, 90, 270), // farY -> nearY, bultea hacia -x
+      { x: Lo - notchWidth, y: nearY },
+      { x: Lo - notchWidth, y: Wo },
     ];
   };
+
+  const lidWithPegs = () => [
+    { x: 0, y: 0 }, { x: Lo, y: 0 }, { x: Lo, y: Wo },
+    ...buildPegCorner(false),
+    ...buildPegCorner(true),
+    { x: 0, y: Wo },
+  ];
 
   const specs = [
     {
