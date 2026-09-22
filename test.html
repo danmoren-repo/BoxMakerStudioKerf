@@ -20,7 +20,7 @@
 
   <script type="module">
     import { computeSegments, edgeProfile, jointIntervals } from './js/core/finger-joint.js';
-    import { panelOutline, pocketFeature } from './js/core/panel.js';
+    import { panelOutline, pocketFeature, holeFeature } from './js/core/panel.js';
     import { boundingBox } from './js/core/geometry.js';
     import { buildBox, autoTabWidth } from './js/boxes/simple-box.js';
     import { buildSlidingBox } from './js/boxes/sliding-box.js';
@@ -428,6 +428,24 @@
       const bb = boundingBox(f.points);
       assert(near(bb.minX, 1) && near(bb.minY, 2) && near(bb.width, 10) && near(bb.height, 3),
         `bbox (${bb.minX}, ${bb.minY}) ${bb.width} × ${bb.height}`);
+    });
+
+    check('holeFeature: círculo de 48 lados, sin kerf, capa de corte por defecto', () => {
+      const f = holeFeature({ id: 'hinge-hole', cx: 10, cy: 5, diameter: 6 });
+      assert(f.id === 'hinge-hole', `id ${f.id}`);
+      assert(f.layer === 'cut', `capa ${f.layer}, esperaba cut`);
+      assert(f.kind === 'hole', `kind ${f.kind}, esperaba hole`);
+      assert(f.points.length === 48, `${f.points.length} puntos, esperaba 48`);
+      for (const p of f.points) {
+        const d = Math.hypot(p.x - 10, p.y - 5);
+        assert(near(d, 3, 1e-6), `punto a distancia ${d} del centro, esperaba 3`);
+      }
+    });
+
+    check('holeFeature: el kerf agranda el radio para que el agujero terminado dé la medida nominal', () => {
+      const f = holeFeature({ id: 'hinge-hole', cx: 0, cy: 0, diameter: 10, kerf: 0.2 });
+      const d = Math.hypot(f.points[0].x, f.points[0].y);
+      assert(near(d, 5.1, 1e-6), `radio dibujado ${d}, esperaba 5.1 (5 + kerf/2)`);
     });
 
     check('el render saca las features a la capa de grabado, trasladadas con su pieza', () => {

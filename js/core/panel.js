@@ -56,3 +56,17 @@ export function pocketFeature({ id, x, y, width, height, depth, layer = 'engrave
     ],
   };
 }
+
+// Un agujero circular pasante, aproximado por un polígono de `segments` lados.
+// A diferencia de pocketFeature, ESTE sí lleva compensación de kerf: es un
+// corte de lado a lado, así que el radio se dibuja kerf/2 más grande para que,
+// comido el medio kerf por el haz, el agujero termine en la medida nominal.
+export function holeFeature({ id, cx, cy, diameter, kerf = 0, layer = 'cut', segments = 48 }) {
+  const r = diameter / 2 + kerf / 2;
+  const points = [];
+  for (let i = 0; i < segments; i++) {
+    const angle = (i / segments) * 2 * Math.PI;
+    points.push({ x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) });
+  }
+  return { id, layer, kind: 'hole', points };
+}
