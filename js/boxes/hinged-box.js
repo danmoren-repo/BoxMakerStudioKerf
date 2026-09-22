@@ -134,6 +134,74 @@ export function buildHingedBox(params) {
     };
   };
 
+  // Cada espiga es una pestaña redondeada (un rectángulo terminado en
+  // semicírculo) que sale de la tapa hacia la esquina trasera y encaja en el
+  // agujero de su lateral. Vive dentro de una muesca del mismo ancho que el
+  // poste correspondiente, para que el poste tenga sitio cuando la tapa
+  // cierra. El disco queda centrado en (t/2, Wo − t − em − rh) para la
+  // esquina izquierda, espejado para la derecha — el mismo centro, en
+  // coordenadas absolutas de la caja, que el agujero de su lateral.
+  const pegArc = (cx, cy, fromDeg, toDeg, steps = 16) => {
+    const pts = [];
+    for (let i = 0; i <= steps; i++) {
+      const a = ((fromDeg + (toDeg - fromDeg) * (i / steps)) * Math.PI) / 180;
+      pts.push({ x: cx + rh * Math.cos(a), y: cy + rh * Math.sin(a) });
+    }
+    return pts;
+  };
+
+  // El ancho de la muesca (dónde el cuello se separa del canto trasero de la
+  // tapa) tiene que quedar del mismo ancho que el poste, como dice el
+  // comentario de arriba — y no sólo por estética: el disco de la espiga
+  // (radio rh, centrado a t/2 del canto) sólo puede bultear hacia adentro
+  // del canto, así que su punto más lejano llega a t/2 + rh. Si la muesca
+  // fuera más angosta que eso (p.ej. t + em, mucho menor que t/2 + rh con
+  // los valores por defecto) el segmento recto que cierra la muesca cruzaría
+  // el propio arco de la espiga, dando un contorno que se cruza a sí mismo.
+  const notchWidth = postWidth;
+  const buildPegCorner = (isLeft) => {
+    const cx = isLeft ? t / 2 : Lo - t / 2;
+    const cy = Wo - t - EDGE_MARGIN - rh;
+    const attachX = isLeft ? notchWidth : Lo - notchWidth;
+    // Arco: para la esquina izquierda el cuello sale hacia +x (desde el
+    // disco, que está más cerca del canto), así que se dibuja la mitad del
+    // círculo que mira hacia -x (90°→270°). Para la derecha, al revés.
+    const arc = isLeft ? pegArc(cx, cy, -90, 90) : pegArc(cx, cy, 90, 270);
+    const neckHalf = rh;
+    const nearY = cy - neckHalf;
+    const farY = cy + neckHalf;
+    // El arco de la izquierda recorre nearY -> farY; el de la derecha (barrido
+    // 90°->270°) recorre farY -> nearY, al revés. Los puntos de enganche del
+    // cuello tienen que ir en ese mismo orden o el camino da un salto que no
+    // sigue el arco.
+    return isLeft
+      ? [{ x: attachX, y: nearY }, ...arc, { x: attachX, y: farY }]
+      : [{ x: attachX, y: farY }, ...arc, { x: attachX, y: nearY }];
+  };
+
+  const lidWithPegs = () => {
+    const spec = {
+      width: Lo, height: Wo,
+      edges: {
+        top: { gender: 'plain' }, bottom: { gender: 'plain' },
+        left: { gender: 'plain' }, right: { gender: 'plain' },
+      },
+    };
+    const base = panelOutline(spec, material);
+    // base es el rectángulo Lo × Wo en sentido horario: (0,0) (Lo,0) (Lo,Wo) (0,Wo).
+    // Se reconstruye a mano insertando, en el canto trasero (de (Lo,Wo) a
+    // (0,Wo)), la muesca+espiga de la derecha primero y la de la izquierda
+    // después, porque el recorrido va de x=Lo hacia x=0 en ese tramo.
+    const rightPeg = buildPegCorner(false);
+    const leftPeg = buildPegCorner(true);
+    return [
+      { x: 0, y: 0 }, { x: Lo, y: 0 }, { x: Lo, y: Wo },
+      { x: Lo - notchWidth, y: Wo }, ...rightPeg, { x: Lo - notchWidth, y: Wo },
+      { x: notchWidth, y: Wo }, ...leftPeg, { x: notchWidth, y: Wo },
+      { x: 0, y: Wo },
+    ];
+  };
+
   const specs = [
     {
       id: 'bottom', label: 'BOTTOM', width: spanX, height: spanY,
@@ -144,13 +212,6 @@ export function buildHingedBox(params) {
     },
     { id: 'front', label: 'FRONT', ...endWall },
     { id: 'back', label: 'BACK', ...endWall },
-    {
-      id: 'lid', label: 'LID', width: Lo, height: Wo,
-      edges: {
-        top: { gender: 'plain' }, bottom: { gender: 'plain' },
-        left: { gender: 'plain' }, right: { gender: 'plain' },
-      },
-    },
   ];
 
   const generic = Object.fromEntries(
@@ -158,7 +219,15 @@ export function buildHingedBox(params) {
   );
   const left = buildSideWall('left', 'LEFT', 'left');
   const right = buildSideWall('right', 'RIGHT', 'right');
-  const panels = [generic.bottom, generic.front, left, generic.lid, generic.back, right];
+  const lid = {
+    id: 'lid', label: 'LID', width: Lo, height: Wo,
+    edges: {
+      top: { gender: 'plain' }, bottom: { gender: 'plain' },
+      left: { gender: 'plain' }, right: { gender: 'plain' },
+    },
+    points: lidWithPegs(),
+  };
+  const panels = [generic.bottom, generic.front, left, lid, generic.back, right];
 
   return {
     panels,

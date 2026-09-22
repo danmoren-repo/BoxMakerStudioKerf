@@ -768,9 +768,12 @@
       assert(near(hinged.inner.height, 74), `interior ${hinged.inner.height}, esperaba 74`);
     });
 
-    check('bisagra: la tapa es lisa y del tamaño exterior completo', () => {
+    check('bisagra: la tapa (con espigas y todo) sigue midiendo el tamaño exterior completo', () => {
+      // Desde Task 4 la tapa ya no es un rectángulo liso de 4 puntos: lleva
+      // las dos muescas con espiga del canto trasero. Su bounding box, sin
+      // embargo, no cambia — las espigas y sus muescas quedan dentro de los
+      // límites Lo × Wo, no sobresalen.
       const lid = hp('lid');
-      assert(lid.points.length === 4, `${lid.points.length} puntos: la tapa base no debería llevar bultos`);
       const bb = boundingBox(lid.points);
       assert(near(bb.width, 80) && near(bb.height, 80), `tapa ${bb.width} × ${bb.height}, esperaba 80 × 80`);
     });
@@ -836,6 +839,59 @@
       // En 'left' ese canto es x = spanY (74); en 'right' es x = 0. Espejados.
       assert(near(cxLeft, 74 - 8.5, 0.05), `left: centro en x=${cxLeft}, esperaba 65.5`);
       assert(near(cxRight, 8.5, 0.05), `right: centro en x=${cxRight}, esperaba 8.5`);
+    });
+
+    check('bisagra: la tapa lleva una muesca con espiga en cada esquina trasera', () => {
+      const lid = hp('lid');
+      assert(lid.points.length > 4, 'la tapa sigue siendo un rectángulo liso: faltan las espigas');
+      // Las espigas viven cerca de y = Wo (80): puntos con y claramente mayor
+      // que el resto del contorno, más allá del rectángulo base.
+      const beyondBack = lid.points.filter((p) => p.y > 80 + 0.01);
+      assert(beyondBack.length === 0, 'ningún punto de la espiga debe sobresalir por detrás del canto trasero');
+    });
+
+    check('bisagra: el disco de cada espiga queda centrado sobre el agujero de su lateral', () => {
+      // La espiga vive en el mismo plano que la tapa: su centro, en X e Y
+      // absolutos de la caja, tiene que coincidir con el centro del agujero
+      // del lateral que le toca. left: x = t/2. right: x = Lo - t/2. Los dos
+      // en y = Wo - t - em - rh.
+      //
+      // El disco es sólo un semicírculo — no puede bulgear más allá del
+      // propio canto de la tapa — así que el centro de su bounding box NO
+      // coincide con su centro real (queda corrido rh/2 hacia adentro,
+      // sin importar qué tan bien esté centrada la espiga). Se valida en
+      // cambio por distancia: la mayoría de los puntos del arco caen a
+      // exactamente rh del centro esperado; con la mediana (robusta a los
+      // dos puntos rectos del cuello, que quedan un poco más lejos) alcanza.
+      const lid = hp('lid');
+      const rh = hinged.hinge.holeDiameter / 2;
+      const centeredOn = (expCx, expCy, label) => {
+        const pts = lid.points.filter((p) => Math.hypot(p.x - expCx, p.y - expCy) < 20);
+        assert(pts.length > 0, `no hay puntos de espiga cerca de la esquina ${label}`);
+        const dists = pts.map((p) => Math.hypot(p.x - expCx, p.y - expCy)).sort((a, b) => a - b);
+        const median = dists[Math.floor(dists.length / 2)];
+        assert(near(median, rh, 0.3),
+          `${label}: la mayoría de los puntos de la espiga están a ${median} del centro esperado (${expCx}, ${expCy}), esperaba ~${rh} (el radio del disco)`);
+      };
+      centeredOn(1.5, 68.5, 'izquierda');
+      centeredOn(78.5, 68.5, 'derecha');
+    });
+
+    check('bisagra: la muesca de la esquina no invade el resto del canto lateral de la tapa', () => {
+      const lid = hp('lid');
+      // El canto izquierdo (x = 0) es un único segmento recto de (0,Wo) a
+      // (0,0): sin la muesca ahí en medio, esos deberían ser los DOS únicos
+      // vértices con x ≈ 0 (nada de la espiga o su cuello debe tocar x = 0).
+      const atLeftEdge = lid.points.filter((p) => near(p.x, 0, 1e-6));
+      assert(atLeftEdge.length === 2,
+        `${atLeftEdge.length} vértices en x = 0, esperaba 2 (las dos esquinas, nada de la espiga invadiendo el canto)`);
+    });
+
+    check('bisagra: el contorno de la tapa sigue siendo un único camino cerrado', () => {
+      const lid = hp('lid');
+      for (const p of lid.points) {
+        assert(Number.isFinite(p.x) && Number.isFinite(p.y), 'coordenada no numérica en la tapa');
+      }
     });
 
     const failed = results.filter((r) => !r.ok);
