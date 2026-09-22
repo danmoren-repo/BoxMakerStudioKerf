@@ -26,6 +26,16 @@ export function hingeClearanceFor({ hingeClearance }) {
   return Number.isFinite(hingeClearance) ? hingeClearance : DEFAULT_HINGE_CLEARANCE;
 }
 
+export function handleWidthFor({ handleWidth }) {
+  return Number.isFinite(handleWidth) ? handleWidth : 20;
+}
+export function handleDepthFor({ handleDepth }) {
+  return Number.isFinite(handleDepth) ? handleDepth : 6;
+}
+export function handleCornerRadiusFor({ handleCornerRadius }) {
+  return Number.isFinite(handleCornerRadius) ? handleCornerRadius : 2;
+}
+
 // Ho es la distancia de la base a la cara superior de la tapa cerrada, igual
 // que en las otras tapas. Las cuatro paredes quedan a Ho − tl, como la tapa
 // plana: la tapa se apoya encima y queda a ras.
@@ -61,6 +71,9 @@ export function autoTabWidth(params) {
 
 export function buildHingedBox(params) {
   const { kerf, tabWidth } = params;
+  const hw = handleWidthFor(params);
+  const hd = handleDepthFor(params);
+  const hr = handleCornerRadiusFor(params);
   const {
     Lo, Wo, Ho, t, tl, dp, hc, rh, wallHeight, postHeight, postWidth,
   } = hingedHeights(params);
@@ -79,14 +92,29 @@ export function buildHingedBox(params) {
 
   const SOLID = { startsSolid: true };
   const material = { thickness: t, kerf, tabWidth };
-  const endWall = {
-    width: Lo, height: wallHeight,
-    edges: {
-      top: { gender: 'plain' },
-      bottom: { gender: 'female', jointStart: t, jointSpan: spanX, ...SOLID },
-      left: { gender: 'female', jointStart: t, jointSpan: spanZ, ...SOLID },
-      right: { gender: 'female', jointStart: t, jointSpan: spanZ, ...SOLID },
-    },
+  const endWallEdges = {
+    top: { gender: 'plain' },
+    bottom: { gender: 'female', jointStart: t, jointSpan: spanX, ...SOLID },
+    left: { gender: 'female', jointStart: t, jointSpan: spanZ, ...SOLID },
+    right: { gender: 'female', jointStart: t, jointSpan: spanZ, ...SOLID },
+  };
+  const endWall = { width: Lo, height: wallHeight, edges: endWallEdges };
+
+  // La muesca del frente hace juego con la manija de la tapa: juntas dejan un
+  // hueco por el que meter el dedo. Se injerta igual que el poste del
+  // lateral: los dos primeros puntos de panelOutline son las esquinas del
+  // canto superior (acá 'top' es plain, así que no se mezcla con nada más).
+  const buildFrontWall = () => {
+    const basePoints = panelOutline(endWall, material);
+    const rest = basePoints.slice(2);
+    return {
+      id: 'front', label: 'FRONT', width: Lo, height: wallHeight, edges: endWallEdges,
+      points: [
+        { x: 0, y: 0 }, { x: handleStart, y: 0 }, { x: handleStart, y: hd },
+        { x: handleStart + hw, y: hd }, { x: handleStart + hw, y: 0 }, { x: Lo, y: 0 },
+        ...rest,
+      ],
+    };
   };
 
   // El poste sólo sobresale en la esquina trasera; el resto del canto sigue a
@@ -228,12 +256,53 @@ export function buildHingedBox(params) {
     ];
   };
 
-  const lidWithPegs = () => [
-    { x: 0, y: 0 }, { x: Lo, y: 0 }, { x: Lo, y: Wo },
-    ...buildPegCorner(false),
-    ...buildPegCorner(true),
-    { x: 0, y: Wo },
-  ];
+  // La manija es un bulto que sale del canto delantero de la tapa. Sólo
+  // tiene sentido redondear las dos esquinas de la PUNTA (las más alejadas
+  // del canto) — la base, donde se funde con el canto, no es una esquina:
+  // ahí el contorno sigue derecho, igual que en cualquier otro punto del
+  // canto delantero.
+  //
+  // El plan original (`roundedRectPoints`, un rectángulo de 4 esquinas
+  // redondeadas y sentido horario) traza un rectángulo CERRADO completo —
+  // incluida la arista que falta entre el último punto y el primero,
+  // implícita al usarlo como polígono por sí solo. Empalmar ese rectángulo
+  // entero entre (handleStart, 0) y (handleStart + hw, 0), como decía el
+  // plan, no funciona: mete un bucle cerrado propio en medio del contorno
+  // de la tapa, con una costura cerca de la base (la arista entre las dos
+  // esquinas "de abajo" del rectángulo, que conecta un lado con el otro
+  // cruzando por dentro de la propia manija) que efectivamente se cruza con
+  // el resto de la figura. Verificado con un script de cruces de segmentos
+  // (mismo tipo que el usado para `buildPegCorner`): con las 4 esquinas,
+  // 1 cruce transversal y 1 vértice apoyado sobre una arista ajena, los dos
+  // exactamente en esa costura de la base. Con sólo las 2 esquinas de la
+  // punta (esta versión), 0 y 0.
+  const handleCapPoints = (x, width, tipY, radius, steps = 6) => {
+    const arc = (cx, cy, fromDeg, toDeg) => {
+      const pts = [];
+      for (let i = 0; i <= steps; i++) {
+        const a = ((fromDeg + (toDeg - fromDeg) * (i / steps)) * Math.PI) / 180;
+        pts.push({ x: cx + radius * Math.cos(a), y: cy + radius * Math.sin(a) });
+      }
+      return pts;
+    };
+    return [
+      ...arc(x + radius, tipY + radius, 180, 270),
+      ...arc(x + width - radius, tipY + radius, 270, 360),
+    ];
+  };
+
+  const handleStart = Lo / 2 - hw / 2;
+
+  const lidWithPegs = () => {
+    const handle = handleCapPoints(handleStart, hw, -hd, hr);
+    return [
+      { x: 0, y: 0 }, { x: handleStart, y: 0 }, ...handle, { x: handleStart + hw, y: 0 },
+      { x: Lo, y: 0 }, { x: Lo, y: Wo },
+      ...buildPegCorner(false),
+      ...buildPegCorner(true),
+      { x: 0, y: Wo },
+    ];
+  };
 
   const specs = [
     {
@@ -243,13 +312,13 @@ export function buildHingedBox(params) {
         left: { gender: 'male', ...SOLID }, right: { gender: 'male', ...SOLID },
       },
     },
-    { id: 'front', label: 'FRONT', ...endWall },
     { id: 'back', label: 'BACK', ...endWall },
   ];
 
   const generic = Object.fromEntries(
     specs.map((spec) => [spec.id, { ...spec, points: panelOutline(spec, material) }]),
   );
+  const front = buildFrontWall();
   const left = buildSideWall('left', 'LEFT', 'left');
   const right = buildSideWall('right', 'RIGHT', 'right');
   const lid = {
@@ -260,7 +329,7 @@ export function buildHingedBox(params) {
     },
     points: lidWithPegs(),
   };
-  const panels = [generic.bottom, generic.front, left, lid, generic.back, right];
+  const panels = [generic.bottom, front, left, lid, generic.back, right];
 
   return {
     panels,

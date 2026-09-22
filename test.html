@@ -768,14 +768,16 @@
       assert(near(hinged.inner.height, 74), `interior ${hinged.inner.height}, esperaba 74`);
     });
 
-    check('bisagra: la tapa (con espigas y todo) sigue midiendo el tamaño exterior completo', () => {
+    check('bisagra: la tapa mide el ancho exterior completo; el alto crece por la manija', () => {
       // Desde Task 4 la tapa ya no es un rectángulo liso de 4 puntos: lleva
-      // las dos muescas con espiga del canto trasero. Su bounding box, sin
-      // embargo, no cambia — las espigas y sus muescas quedan dentro de los
-      // límites Lo × Wo, no sobresalen.
+      // las dos muescas con espiga del canto trasero, que quedan dentro de
+      // los límites Lo × Wo (no sobresalen). Desde Task 5 además sobresale
+      // la manija por el canto delantero (handleDepth, 6 mm por defecto), así
+      // que el alto de la bounding box ya no es Wo sino Wo + handleDepth.
       const lid = hp('lid');
       const bb = boundingBox(lid.points);
-      assert(near(bb.width, 80) && near(bb.height, 80), `tapa ${bb.width} × ${bb.height}, esperaba 80 × 80`);
+      assert(near(bb.width, 80), `tapa ancho ${bb.width}, esperaba 80`);
+      assert(near(bb.height, 86, 0.05), `tapa alto ${bb.height}, esperaba 86 (80 + 6 de manija)`);
     });
 
     check('bisagra: modo interiores da el hueco pedido', () => {
@@ -892,6 +894,41 @@
       for (const p of lid.points) {
         assert(Number.isFinite(p.x) && Number.isFinite(p.y), 'coordenada no numérica en la tapa');
       }
+    });
+
+    check('bisagra: la tapa tiene una manija que sobresale del canto delantero', () => {
+      const lid = hp('lid');
+      const beyondFront = lid.points.filter((p) => p.y < -0.01);
+      assert(beyondFront.length > 0, 'ningún punto de la tapa sobresale por delante: falta la manija');
+      const minY = Math.min(...lid.points.map((p) => p.y));
+      assert(near(minY, -6, 0.05), `la manija sobresale ${-minY} mm, esperaba 6`);
+    });
+
+    check('bisagra: la manija queda centrada en X', () => {
+      const lid = hp('lid');
+      const minY = Math.min(...lid.points.map((p) => p.y));
+      const tip = lid.points.filter((p) => near(p.y, minY, 0.5));
+      const xs = tip.map((p) => p.x);
+      const center = (Math.min(...xs) + Math.max(...xs)) / 2;
+      assert(near(center, 40, 0.5), `manija centrada en x=${center}, esperaba 40 (Lo/2)`);
+    });
+
+    check('bisagra: la pared frontal tiene una muesca del mismo ancho, en la misma posición', () => {
+      // El filtro no puede ser sólo "y > 0.01": el resto del contorno (las
+      // dentelladas de las aristas right/bottom/left, que arrancan en
+      // startsSolid así que su primer diente ya vive bien lejos de y=0,
+      // >13 mm con los valores canónicos) también tiene y > 0.01 y no es
+      // parte de la muesca. Se acota por arriba, muy por debajo de esa
+      // primera dentellada, para quedarnos sólo con el bulto de la muesca
+      // (en y = handleDepth, 6 mm por defecto).
+      const front = hp('front');
+      const notchPoints = front.points.filter((p) => p.y > 0.01 && p.y < 10);
+      assert(notchPoints.length > 0, 'la pared frontal no tiene ninguna muesca');
+      const xs = notchPoints.map((p) => p.x);
+      const center = (Math.min(...xs) + Math.max(...xs)) / 2;
+      assert(near(center, 40, 0.5), `muesca del frente centrada en x=${center}, esperaba 40`);
+      const width = Math.max(...xs) - Math.min(...xs);
+      assert(near(width, 20, 0.5), `muesca del frente de ${width} mm, esperaba 20 (handleWidth)`);
     });
 
     const failed = results.filter((r) => !r.ok);
