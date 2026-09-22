@@ -301,3 +301,8 @@ button:focus-visible {
   font-size: 13px;
   color: var(--engrave-text);
 }
+
+.hinged-fields {
+  border-left: 2px solid var(--accent);
+  padding-left: 12px;
+}

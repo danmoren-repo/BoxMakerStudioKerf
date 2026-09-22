@@ -1,5 +1,6 @@
 import { buildBox, autoTabWidth as simpleTabWidth } from '../boxes/simple-box.js';
 import { buildSlidingBox, autoTabWidth as slidingTabWidth } from '../boxes/sliding-box.js';
+import { buildHingedBox, autoTabWidth as hingedTabWidth } from '../boxes/hinged-box.js';
 import { renderBox } from '../render/svg-render.js';
 import { downloadSvg } from '../render/export.js';
 import { round } from '../core/geometry.js';
@@ -17,12 +18,19 @@ const lidThicknessAutoEl = document.getElementById('lidThicknessAuto');
 const grooveDepthEl = document.getElementById('grooveDepth');
 const grooveAutoEl = document.getElementById('grooveAuto');
 const engraveNote = document.getElementById('engraveNote');
+const hingedFields = document.getElementById('hingedFields');
+const pegDiameterEl = document.getElementById('pegDiameter');
+const pegDiameterAutoEl = document.getElementById('pegDiameterAuto');
+const hingeClearanceEl = document.getElementById('hingeClearance');
+const handleWidthEl = document.getElementById('handleWidth');
+const handleDepthEl = document.getElementById('handleDepth');
 
 // Cada tipo de tapa trae su generador y su cálculo de espiga automática: el
 // tramo de junta más corto no es el mismo en una caja cerrada que en una con
 // el frente rebajado.
 const BUILDERS = {
   sliding: { build: buildSlidingBox, autoTab: slidingTabWidth },
+  hinged: { build: buildHingedBox, autoTab: hingedTabWidth },
   default: { build: buildBox, autoTab: simpleTabWidth },
 };
 const builderFor = (lidType) => BUILDERS[lidType] ?? BUILDERS.default;
@@ -60,6 +68,18 @@ function readParams() {
     }
     params.grooveDepth = parseFloat(grooveDepthEl.value);
     params.slideClearance = number('slideClearance');
+  }
+
+  const hinged = lidType === 'hinged';
+  hingedFields.hidden = !hinged;
+
+  if (hinged) {
+    pegDiameterEl.disabled = pegDiameterAutoEl.checked;
+    if (pegDiameterAutoEl.checked) pegDiameterEl.value = round(4 * params.thickness, 1);
+    params.pegDiameter = parseFloat(pegDiameterEl.value);
+    params.hingeClearance = number('hingeClearance');
+    params.handleWidth = number('handleWidth');
+    params.handleDepth = number('handleDepth');
   }
 
   tabWidthEl.disabled = tabAutoEl.checked;
@@ -136,7 +156,7 @@ downloadBtn.addEventListener('click', () => {
   if (!currentSvg || !currentBox) return;
   const { length, width, height } = currentBox.outer;
   const thickness = document.getElementById('thickness').value;
-  const SUFFIXES = { flat: '-tapaplana', sliding: '-deslizante' };
+  const SUFFIXES = { flat: '-tapaplana', sliding: '-deslizante', hinged: '-bisagra' };
   const lid = SUFFIXES[form.elements.lidType.value] ?? '';
   downloadSvg(currentSvg, `boxmaker-${round(length, 1)}x${round(width, 1)}x${round(height, 1)}-t${thickness}${lid}.svg`);
 });
