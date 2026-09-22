@@ -168,35 +168,44 @@ export function buildHingedBox(params) {
   // al círculo: para cualquier x, la distancia al cuadrado desde (x, farY)
   // hasta el centro (cx, cy) es (x − cx)² + rh² ≥ rh², así que nunca entra
   // al círculo, sólo lo toca en x = cx (misma cuenta en nearY = cy − rh, el
-  // punto más bajo). Sigue el arco hasta (cx, nearY) y desde ahí sube
-  // derecho por x = cx hasta el canto trasero otra vez. Esa subida tampoco
-  // cruza el arco: la recta x = cx sólo toca el círculo en nearY y farY —
-  // sus dos únicos puntos con esa x — que son justo los vértices donde la
-  // subida empalma con el arco.
+  // punto más bajo). Sigue el arco hasta (cx, nearY).
   //
-  // La primera versión enganchaba entrada y salida al MISMO punto (attachX,
-  // Wo): dos tramos verticales a la misma x pero distinta profundidad,
-  // colineares y superpuestos — sellaban el hueco en vez de abrirlo. La
-  // corrección directa (unir ese punto a los dos extremos del arco con
-  // diagonales) tampoco sirve: una diagonal a un punto del círculo que no es
-  // tangente pasa por su interior antes de llegar (verificado a mano, y
-  // también por el agente que retomó este arreglo tras el primer intento).
-  // Sólo las líneas TANGENTES evitan volver a cruzar el arco.
+  // Desde ahí NO sube derecho por x = cx: esa recta sí toca el círculo sólo
+  // en nearY y farY, pero farY queda A MITAD DE CAMINO entre nearY y Wo —
+  // la subida pasaría directo por ese punto, que ya es un vértice de otra
+  // arista (donde el arco empalma con la línea tangente de arriba). Un
+  // vértice ajeno tocado a mitad de una arista no cruza nada en el sentido
+  // clásico, pero sí vuelve la esquina degenerada — el escáner de la Task 4
+  // lo detectó como una arista que pasa por un vértice que no le toca.
   //
-  // La subida final llega a (cx, Wo), no a (0, Wo) — x = 0, el canto lateral
-  // de la tapa, queda intacto de punta a punta, sin que la espiga lo toque.
+  // En su lugar, la tangente en nearY cruza hasta innerX — un tercer punto,
+  // distinto de cx y del hombro exterior, más cerca del canto lateral que
+  // cx — y SÓLO ahí sube derecho hasta el canto trasero. Como innerX ≠ cx,
+  // esa subida no pasa por ningún vértice del arco ni de la tangente de
+  // farY. innerX se elige a mitad de camino entre cx y el canto lateral
+  // real (0 o Lo): queda fuera del rango [cx, hombro exterior] que cubre la
+  // tangente de farY, así que tampoco la cruza.
+  //
+  // (Historial: la primera versión enganchaba entrada y salida al MISMO
+  // punto — colineares y superpuestos, sellaban el hueco. La siguiente
+  // (diagonales directas a los extremos del arco) volvía a cruzar el
+  // círculo por no ser tangente. Esta — dos tangentes, tres anclajes
+  // distintos en el canto trasero (hombro exterior, innerX) — es la que
+  // pasó la revisión de un escáner que compara CADA par de aristas, no
+  // sólo cruces transversales sino también solapes colineares y aristas
+  // que pasan por vértices ajenos.)
   const buildPegCorner = (isLeft) => {
     const cx = isLeft ? t / 2 : Lo - t / 2;
     const cy = Wo - t - EDGE_MARGIN - rh;
     const nearY = cy - rh;
     const farY = cy + rh;
+    const innerX = isLeft ? cx / 2 : cx + (Lo - cx) / 2;
     // El arco sale en el orden que pide el recorrido: la izquierda entra
     // por farY (viniendo del hombro exterior) y sale por nearY (hacia
-    // arriba, derecho por x = cx); la derecha, al revés (entra por nearY,
-    // viniendo derecho por x = cx, y sale por farY, hacia el hombro
-    // exterior).
+    // innerX); la derecha, al revés (entra por nearY, viniendo de innerX,
+    // y sale por farY, hacia el hombro exterior).
     const points = isLeft ? pegArc(cx, cy, 90, -90) : pegArc(cx, cy, 270, 90);
-    return { cx, nearY, farY, points };
+    return { cx, nearY, farY, innerX, points };
   };
 
   const lidWithPegs = () => {
@@ -205,17 +214,17 @@ export function buildHingedBox(params) {
     // Rectángulo Lo × Wo en sentido horario, con las dos muescas+espiga
     // injertadas en el canto trasero (de (Lo,Wo) a (0,Wo)): la derecha
     // primero, la izquierda después, porque el recorrido va de x=Lo hacia
-    // x=0 en ese tramo. Cada una entra derecho por x = cx (sin tocar el
+    // x=0 en ese tramo. Cada una sube derecho por innerX (sin tocar el
     // canto lateral) y sale por el hombro exterior a notchWidth del canto,
     // o al revés — ver el comentario de buildPegCorner.
     return [
       { x: 0, y: 0 }, { x: Lo, y: 0 }, { x: Lo, y: Wo },
-      { x: right.cx, y: Wo }, { x: right.cx, y: right.nearY },
+      { x: right.innerX, y: Wo }, { x: right.innerX, y: right.nearY },
       ...right.points,
       { x: Lo - notchWidth, y: right.farY }, { x: Lo - notchWidth, y: Wo },
       { x: notchWidth, y: Wo }, { x: notchWidth, y: left.farY },
       ...left.points,
-      { x: left.cx, y: Wo },
+      { x: left.innerX, y: left.nearY }, { x: left.innerX, y: Wo },
       { x: 0, y: Wo },
     ];
   };
