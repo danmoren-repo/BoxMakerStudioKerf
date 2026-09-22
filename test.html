@@ -24,6 +24,7 @@
     import { boundingBox } from './js/core/geometry.js';
     import { buildBox, autoTabWidth } from './js/boxes/simple-box.js';
     import { buildSlidingBox } from './js/boxes/sliding-box.js';
+    import { buildHingedBox } from './js/boxes/hinged-box.js';
     import { renderBox } from './js/render/svg-render.js';
 
     const results = [];
@@ -744,6 +745,41 @@
       }
       assert(slide.warnings.length === 0,
         `la caja canónica no debería avisar nada: ${slide.warnings.join(' | ')}`);
+    });
+
+    const HINGED = {
+      length: 80, width: 80, height: 80,
+      thickness: 3, kerf: 0.16, tabWidth: 12,
+      dimensionMode: 'outer', lidType: 'hinged',
+    };
+    const hinged = buildHingedBox(HINGED);
+    const hp = (id) => hinged.panels.find((p) => p.id === id);
+
+    check('bisagra: seis piezas y ningún error', () => {
+      assert(hinged.errors.length === 0, hinged.errors.join(' | '));
+      assert(hinged.panels.length === 6, `${hinged.panels.length} piezas, esperaba 6`);
+      assert(hp('lid'), 'falta la tapa');
+    });
+
+    check('bisagra: de suelo a tapa da el alto pedido, con tl = t las paredes miden igual que la tapa plana', () => {
+      assert(near(hinged.outer.height, 80), `alto exterior ${hinged.outer.height}`);
+      assert(near(hp('front').height, 77), `frente ${hp('front').height}, esperaba 77`);
+      assert(near(hp('back').height, 77), `fondo ${hp('back').height}, esperaba 77`);
+      assert(near(hinged.inner.height, 74), `interior ${hinged.inner.height}, esperaba 74`);
+    });
+
+    check('bisagra: la tapa es lisa y del tamaño exterior completo', () => {
+      const lid = hp('lid');
+      assert(lid.points.length === 4, `${lid.points.length} puntos: la tapa base no debería llevar bultos`);
+      const bb = boundingBox(lid.points);
+      assert(near(bb.width, 80) && near(bb.height, 80), `tapa ${bb.width} × ${bb.height}, esperaba 80 × 80`);
+    });
+
+    check('bisagra: modo interiores da el hueco pedido', () => {
+      const byInner = buildHingedBox({ ...HINGED, dimensionMode: 'inner', length: 74, width: 74, height: 74 });
+      assert(byInner.errors.length === 0, byInner.errors.join(' | '));
+      assert(near(byInner.outer.height, 80), `exterior ${byInner.outer.height}, esperaba 80`);
+      assert(near(byInner.inner.height, 74), `interior ${byInner.inner.height}`);
     });
 
     const failed = results.filter((r) => !r.ok);
