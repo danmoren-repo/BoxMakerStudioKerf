@@ -931,6 +931,38 @@
       assert(near(width, 20, 0.5), `muesca del frente de ${width} mm, esperaba 20 (handleWidth)`);
     });
 
+    check('bisagra: errores que bloquean la generación', () => {
+      const cases = [
+        ['grosor de tapa inválido', { lidThickness: -1 }, 'tapa'],
+        ['diámetro de espiga inválido', { pegDiameter: 0 }, 'espiga'],
+        ['holgura de agujero negativa', { hingeClearance: -1 }, 'holgura'],
+        ['manija sin ancho', { handleWidth: 0 }, 'manija'],
+        ['manija más ancha que el frente disponible', { handleWidth: 90 }, 'manija'],
+      ];
+      for (const [name, override, fragment] of cases) {
+        const r = buildHingedBox({ ...HINGED, ...override });
+        assert(r.errors.length > 0, `${name}: no produjo error`);
+        assert(r.panels.length === 0, `${name}: devolvió piezas pese al error`);
+        assert(r.errors.some((e) => e.toLowerCase().includes(fragment)),
+          `${name}: esperaba un error con "${fragment}", salió: ${r.errors.join(' | ')}`);
+      }
+    });
+
+    check('bisagra: avisos que no bloquean', () => {
+      const cases = [
+        ['holgura muy chica', { hingeClearance: 0.05 }, 'dura'],
+        ['holgura muy grande', { hingeClearance: 4 }, 'floja'],
+        ['poco material alrededor del agujero', { thickness: 8, pegDiameter: 4, hingeClearance: 0.2 }, 'material'],
+      ];
+      for (const [name, override, fragment] of cases) {
+        const r = buildHingedBox({ ...HINGED, ...override });
+        assert(r.errors.length === 0, `${name}: debía generar, pero dio ${r.errors.join(' | ')}`);
+        assert(r.warnings.some((w) => w.toLowerCase().includes(fragment)),
+          `${name}: esperaba un aviso con "${fragment}", salió: ${r.warnings.join(' | ') || '(ninguno)'}`);
+      }
+      assert(hinged.warnings.length === 0, `la caja canónica no debería avisar nada: ${hinged.warnings.join(' | ')}`);
+    });
+
     const failed = results.filter((r) => !r.ok);
     document.getElementById('summary').textContent =
       failed.length === 0

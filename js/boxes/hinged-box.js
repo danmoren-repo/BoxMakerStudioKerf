@@ -81,7 +81,17 @@ export function buildHingedBox(params) {
   const spanY = Wo - 2 * t; // laterales <-> base
   const spanZ = wallHeight - 2 * t; // juntas verticales, iguales en las cuatro paredes
 
-  const errors = validate({ Lo, Wo, Ho, t, tl, dp, hc, kerf, tabWidth, spanX, spanY, spanZ });
+  // El ancho de la muesca (dónde el cuello se separa del canto trasero de la
+  // tapa) tiene que quedar del mismo ancho que el poste, como dice el
+  // comentario de arriba — y no sólo por estética: el disco de la espiga
+  // (radio rh, centrado a t/2 del canto) sólo puede bultear hacia adentro
+  // del canto, así que su punto más lejano llega a t/2 + rh. Si la muesca
+  // fuera más angosta que eso (p.ej. t + em, mucho menor que t/2 + rh con
+  // los valores por defecto) el segmento recto que cierra la muesca cruzaría
+  // el propio arco de la espiga, dando un contorno que se cruza a sí mismo.
+  const notchWidth = postWidth;
+
+  const errors = validate({ Lo, Wo, Ho, t, tl, dp, hc, kerf, tabWidth, spanX, spanY, spanZ, hw, notchWidth });
   if (errors.length > 0) return { errors, warnings: [], panels: [] };
 
   const joints = {
@@ -181,16 +191,6 @@ export function buildHingedBox(params) {
     }
     return pts;
   };
-
-  // El ancho de la muesca (dónde el cuello se separa del canto trasero de la
-  // tapa) tiene que quedar del mismo ancho que el poste, como dice el
-  // comentario de arriba — y no sólo por estética: el disco de la espiga
-  // (radio rh, centrado a t/2 del canto) sólo puede bultear hacia adentro
-  // del canto, así que su punto más lejano llega a t/2 + rh. Si la muesca
-  // fuera más angosta que eso (p.ej. t + em, mucho menor que t/2 + rh con
-  // los valores por defecto) el segmento recto que cierra la muesca cruzaría
-  // el propio arco de la espiga, dando un contorno que se cruza a sí mismo.
-  const notchWidth = postWidth;
 
   // La muesca no es un simple "bulto" pegado al canto: el poste del lateral,
   // cuando la tapa cierra, sube por encima de Ho en esa esquina (ver más
@@ -337,9 +337,9 @@ export function buildHingedBox(params) {
     panels,
     joints,
     errors,
-    warnings: commonWarnings({
+    warnings: warningsFor({
       jointWidths: [joints.x.width, joints.y.width, joints.z.width],
-      t, kerf, tabWidth,
+      t, kerf, tabWidth, hc, rh,
     }),
     outer: { length: Lo, width: Wo, height: Ho },
     inner: { length: spanX, width: spanY, height: wallHeight - t },
@@ -347,12 +347,17 @@ export function buildHingedBox(params) {
   };
 }
 
-function validate({ Lo, Wo, Ho, t, tl, kerf, tabWidth, spanX, spanY, spanZ }) {
+function validate({
+  Lo, Wo, Ho, t, tl, dp, hc, kerf, tabWidth, spanX, spanY, spanZ, hw, notchWidth,
+}) {
   const errors = validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho });
   if (errors.length > 0) return errors;
 
   const positive = (v) => Number.isFinite(v) && v > 0;
   if (!positive(tl)) errors.push('El grosor de la tapa debe ser mayor que 0.');
+  if (!positive(dp)) errors.push('El diámetro de la espiga debe ser mayor que 0.');
+  if (!Number.isFinite(hc) || hc < 0) errors.push('La holgura del agujero no puede ser negativa.');
+  if (!positive(hw)) errors.push('El ancho de la manija debe ser mayor que 0.');
   if (errors.length > 0) return errors;
 
   if (kerf >= t) errors.push(KERF_TOO_BIG);
@@ -362,6 +367,9 @@ function validate({ Lo, Wo, Ho, t, tl, kerf, tabWidth, spanX, spanY, spanZ }) {
   if (spanZ <= 0) {
     errors.push(`Con ${t} mm de material, una caja de ${Ho} mm de alto no deja pared entre la base y la tapa.`);
   }
+  if (hw + 2 * notchWidth >= Lo) {
+    errors.push(`La manija (${hw} mm) es demasiado ancha para el frente: choca con las espigas de bisagra de las esquinas.`);
+  }
   if (errors.length > 0) return errors;
 
   errors.push(...validateTabsVsKerf(
@@ -369,4 +377,18 @@ function validate({ Lo, Wo, Ho, t, tl, kerf, tabWidth, spanX, spanY, spanZ }) {
     tabWidth, kerf,
   ));
   return errors;
+}
+
+function warningsFor({ jointWidths, t, kerf, tabWidth, hc, rh }) {
+  const warnings = commonWarnings({ jointWidths, t, kerf, tabWidth });
+  if (hc < 0.1) {
+    warnings.push(`Holgura del agujero de ${hc} mm: la bisagra va a quedar dura, puede no girar.`);
+  }
+  if (hc > 2) {
+    warnings.push(`Holgura del agujero de ${hc} mm: la bisagra va a quedar floja, con bamboleo notorio.`);
+  }
+  if (t >= 6 && rh < t) {
+    warnings.push(`Con ${t} mm de material, poco material puede quedar alrededor del agujero: revisa el diámetro de espiga.`);
+  }
+  return warnings;
 }
