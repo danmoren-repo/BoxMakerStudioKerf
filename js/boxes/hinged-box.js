@@ -100,6 +100,10 @@ export function buildHingedBox(params) {
   };
   const endWall = { width: Lo, height: wallHeight, edges: endWallEdges };
 
+  // Se declara acá (y no junto al resto de la manija, más abajo) porque
+  // buildFrontWall ya la necesita para su propia muesca.
+  const handleStart = Lo / 2 - hw / 2;
+
   // La muesca del frente hace juego con la manija de la tapa: juntas dejan un
   // hueco por el que meter el dedo. Se injerta igual que el poste del
   // lateral: los dos primeros puntos de panelOutline son las esquinas del
@@ -290,8 +294,6 @@ export function buildHingedBox(params) {
       ...arc(x + width - radius, tipY + radius, 270, 360),
     ];
   };
-
-  const handleStart = Lo / 2 - hw / 2;
 
   const lidWithPegs = () => {
     const handle = handleCapPoints(handleStart, hw, -hd, hr);
