@@ -782,6 +782,62 @@
       assert(near(byInner.inner.height, 74), `interior ${byInner.inner.height}`);
     });
 
+    check('bisagra: el agujero de cada lateral está centrado a em + rh del canto superior del poste', () => {
+      for (const id of ['left', 'right']) {
+        const p = hp(id);
+        const hole = p.features.find((f) => f.id === 'hinge-hole');
+        assert(hole, `${id}: no tiene agujero de bisagra`);
+        const bb = boundingBox(hole.points);
+        const cy = (bb.minY + bb.maxY) / 2;
+        assert(near(cy, 8.5, 0.05), `${id}: centro del agujero a y=${cy}, esperaba 8.5 (em 2 + rh 6.5)`);
+        // El círculo se dibuja kerf-compensado (holeFeature): diámetro
+        // nominal 13 (dp 12 + hc 1) más el kerf entero, no sólo el radio.
+        const expectedDrawn = 13 + HINGED.kerf;
+        assert(near(bb.height, expectedDrawn, 0.02),
+          `${id}: diámetro dibujado ${bb.height}, esperaba ${expectedDrawn} (dp 12 + hc 1 + kerf ${HINGED.kerf})`);
+        assert(hole.layer === 'cut', `${id}: capa ${hole.layer}, esperaba cut`);
+      }
+    });
+
+    check('bisagra: el poste sobresale por encima del nivel de la tapa cerrada', () => {
+      for (const id of ['left', 'right']) {
+        const p = hp(id);
+        assert(near(p.height, 87, 0.05), `${id}: alto ${p.height}, esperaba 87 (77 + 10 de poste)`);
+        const bb = boundingBox(p.points);
+        assert(near(bb.minY, 0), `${id}: el contorno no llega a y=0, el poste no se dibujó`);
+      }
+    });
+
+    check('bisagra: el poste ocupa sólo la esquina trasera, el resto del canto queda a wallHeight', () => {
+      for (const id of ['left', 'right']) {
+        const p = hp(id);
+        const onNormalLevel = p.points.filter((q) => near(q.y, 10, 0.01));
+        assert(onNormalLevel.length >= 1, `${id}: no hay ningún vértice en el nivel normal (y=10)`);
+      }
+    });
+
+    check('bisagra: hay material por encima del agujero (el agujero no toca el canto del poste)', () => {
+      for (const id of ['left', 'right']) {
+        const p = hp(id);
+        const hole = p.features.find((f) => f.id === 'hinge-hole');
+        const bb = boundingBox(hole.points);
+        assert(bb.minY > 1.9, `${id}: el agujero llega a y=${bb.minY}, casi al canto (y=0)`);
+      }
+    });
+
+    check('bisagra: los dos laterales son espejo — el poste vive en la esquina trasera de cada uno', () => {
+      const left = hp('left');
+      const right = hp('right');
+      const holeLeft = left.features.find((f) => f.id === 'hinge-hole');
+      const holeRight = right.features.find((f) => f.id === 'hinge-hole');
+      const cxLeft = boundingBox(holeLeft.points).minX + boundingBox(holeLeft.points).width / 2;
+      const cxRight = boundingBox(holeRight.points).minX + boundingBox(holeRight.points).width / 2;
+      // spanY = 74; el agujero queda a em + rh = 8.5 del canto que mira al fondo.
+      // En 'left' ese canto es x = spanY (74); en 'right' es x = 0. Espejados.
+      assert(near(cxLeft, 74 - 8.5, 0.05), `left: centro en x=${cxLeft}, esperaba 65.5`);
+      assert(near(cxRight, 8.5, 0.05), `right: centro en x=${cxRight}, esperaba 8.5`);
+    });
+
     const failed = results.filter((r) => !r.ok);
     document.getElementById('summary').textContent =
       failed.length === 0
