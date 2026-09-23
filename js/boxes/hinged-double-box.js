@@ -14,7 +14,6 @@ import {
   hingeClearanceFor,
   handleWidthFor,
   handleDepthFor,
-  handleCornerRadiusFor,
   EDGE_MARGIN,
 } from './hinged-box.js';
 
@@ -58,7 +57,6 @@ export function buildHingedDoubleBox(params) {
   const { kerf, tabWidth } = params;
   const hw = handleWidthFor(params);
   const hd = handleDepthFor(params);
-  const hr = handleCornerRadiusFor(params);
   const {
     Lo, Wo, Ho, t, tl, ps, hc, dh, rh, wallHeight, postHeight, postWidth,
   } = hingedDoubleHeights(params);
@@ -67,8 +65,18 @@ export function buildHingedDoubleBox(params) {
   const spanZ = wallHeight - 2 * t; // juntas verticales de las esquinas
   const doorWidth = spanX / 2; // ancho de cada mitad de la tapa
 
+  // Estas cuatro posiciones las necesitan tanto validate() (para chequear
+  // que no se pisen) como la construcción de más abajo — se calculan una
+  // sola vez acá.
+  const postCenterX = (nearLeftEnd) => (nearLeftEnd ? t + EDGE_MARGIN + rh : Lo - t - EDGE_MARGIN - rh);
+  const leftPostEnd = postCenterX(true) + postWidth / 2;
+  const rightPostStart = postCenterX(false) - postWidth / 2;
+  const notchStart = Lo / 2 - hw / 2;
+  const notchEnd = Lo / 2 + hw / 2;
+
   const errors = validate({
-    Lo, Wo, Ho, t, tl, ps, hc, kerf, tabWidth, spanX, spanY, spanZ, hw, hd, doorWidth, postWidth,
+    Lo, Wo, Ho, t, tl, ps, hc, rh, kerf, tabWidth, spanX, spanY, spanZ, hw, hd, doorWidth,
+    leftPostEnd, rightPostStart, notchStart, notchEnd,
   });
   if (errors.length > 0) return { errors, warnings: [], panels: [] };
 
@@ -105,16 +113,14 @@ export function buildHingedDoubleBox(params) {
   const buildSideWall = (id, label, frontEdge) => {
     const isLeft = frontEdge === 'left';
     const backEdge = isLeft ? 'right' : 'left';
-    const spec = {
-      width: spanY, height: wallHeight,
-      edges: {
-        top: { gender: 'plain' },
-        bottom: { gender: 'female', ...SOLID },
-        [frontEdge]: { gender: 'male', jointStart: t, jointSpan: spanZ, ...SOLID },
-        [backEdge]: { gender: 'male', jointStart: t, jointSpan: spanZ, ...SOLID },
-      },
+    const edges = {
+      top: { gender: 'plain' },
+      bottom: { gender: 'female', ...SOLID },
+      [frontEdge]: { gender: 'male', jointStart: t, jointSpan: spanZ, ...SOLID },
+      [backEdge]: { gender: 'male', jointStart: t, jointSpan: spanZ, ...SOLID },
     };
-    return { id, label, width: spanY, height: wallHeight, edges: spec.edges, points: panelOutline(spec, material) };
+    const spec = { width: spanY, height: wallHeight, edges };
+    return { id, label, width: spanY, height: wallHeight, edges, points: panelOutline(spec, material) };
   };
 
   // Cada pared (frontal y trasera) lleva DOS postes, uno cerca de cada
@@ -127,19 +133,13 @@ export function buildHingedDoubleBox(params) {
   // postStart/postEnd de cada lado: el poste izquierdo empieza exactamente
   // en x = t (donde termina la junta de la esquina) — no es casualidad:
   // postX(true) − postWidth/2 = (t + em + rh) − (rh + em) = t exactamente.
-  const postCenterX = (nearLeftEnd) => (nearLeftEnd ? t + EDGE_MARGIN + rh : Lo - t - EDGE_MARGIN - rh);
-  const notchStart = Lo / 2 - hw / 2;
-  const notchEnd = Lo / 2 + hw / 2;
-
+  // (postCenterX, leftPostEnd, rightPostStart, notchStart y notchEnd ya se
+  // calcularon más arriba, antes de validate() — se reutilizan acá tal cual.)
   const buildFrontBackWall = (id, label) => {
     const basePoints = panelOutline(endWall, material);
     const rest = basePoints.slice(2);
-    const leftPostCx = postCenterX(true);
-    const rightPostCx = postCenterX(false);
-    const leftPostStart = leftPostCx - postWidth / 2;
-    const leftPostEnd = leftPostCx + postWidth / 2;
-    const rightPostStart = rightPostCx - postWidth / 2;
-    const rightPostEnd = rightPostCx + postWidth / 2;
+    const leftPostStart = postCenterX(true) - postWidth / 2;
+    const rightPostEnd = postCenterX(false) + postWidth / 2;
 
     const top = [
       { x: 0, y: 0 },
@@ -176,6 +176,13 @@ export function buildHingedDoubleBox(params) {
   // (frente y fondo) son bultos convexos simples sobre cantos rectos —
   // igual que la manija ya implementada — así que no hace falta ninguna
   // técnica nueva, sólo aplicar el mismo bulto cuatro veces por mitad.
+  //
+  // Las dos ramas de abajo (pegNear0 true/false) están escritas cada una
+  // desde cero, no una como reflejo de coordenadas de la otra: reflejar
+  // (negar x) invierte el sentido de recorrido del polígono (CW <-> CCW),
+  // y eso rompe la clasificación material/vacío más adelante. Las dos
+  // ramas recorren el contorno en el mismo sentido, solo que la espiga y
+  // la lengüeta cambian de lado.
   const buildDoor = (id, label, pegNear0) => {
     const pegOffset = EDGE_MARGIN + rh;
     const pegCenter = pegNear0 ? pegOffset : doorWidth - pegOffset;
@@ -236,9 +243,6 @@ export function buildHingedDoubleBox(params) {
     warnings: warningsFor({
       jointWidths: [joints.x.width, joints.y.width, joints.z.width],
       t, kerf, tabWidth, hc, rh, tl, Lo, hw,
-      leftPostEnd: postCenterX(true) + postWidth / 2,
-      rightPostStart: postCenterX(false) - postWidth / 2,
-      notchStart, notchEnd,
     }),
     outer: { length: Lo, width: Wo, height: Ho },
     inner: { length: spanX, width: spanY, height: wallHeight - t - tl },
@@ -247,7 +251,8 @@ export function buildHingedDoubleBox(params) {
 }
 
 function validate({
-  Lo, Wo, Ho, t, tl, ps, hc, kerf, tabWidth, spanX, spanY, spanZ, hw, hd, doorWidth, postWidth,
+  Lo, Wo, Ho, t, tl, ps, hc, rh, kerf, tabWidth, spanX, spanY, spanZ, hw, hd, doorWidth,
+  leftPostEnd, rightPostStart, notchStart, notchEnd,
 }) {
   const errors = validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho });
   if (errors.length > 0) return errors;
@@ -272,8 +277,24 @@ function validate({
   }
   if (errors.length > 0) return errors;
 
-  if (doorWidth <= 0 || doorWidth <= postWidth) {
-    errors.push(`El material de ${t} mm es demasiado grueso para una caja de ${Lo} mm de largo: no queda espacio para las dos mitades de la tapa.`);
+  // Cada mitad de la tapa lleva su espiga cerca del canto exterior y su
+  // lengüeta cerca del canto interior (ver buildDoor) — si la mitad es
+  // demasiado angosta, los dos bultos se pisan y el contorno se cruza a sí
+  // mismo. El límite real no es el ancho del poste de la pared (eso es un
+  // chequeo distinto, sobre la pared) sino que quede sitio en la propia
+  // mitad para la espiga (radio em+rh, más medio lado ps/2) y la lengüeta
+  // (medio ancho hw/2) sin superponerse.
+  if (doorWidth <= 0 || (EDGE_MARGIN + rh + ps / 2) >= (doorWidth - hw / 2)) {
+    errors.push(`El material de ${t} mm es demasiado grueso, o la manija demasiado ancha, para una caja de ${Lo} mm de largo: la espiga y la lengüeta de cada mitad de la tapa se pisarían.`);
+  }
+  // Cada pared (frontal y trasera) lleva dos postes cerca de sus extremos y
+  // una muesca compartida en el medio. Si se pisan, el agujero de bisagra
+  // queda parcial o totalmente fuera del material — un agujero que no
+  // engancha nada, sin ningún aviso visible en el contorno (el polígono
+  // sigue siendo simple, sólo que el agujero cae en el vacío). Por eso es
+  // un error, no un aviso: la pieza generada no sirve para lo que es.
+  if (leftPostEnd >= notchStart || notchEnd >= rightPostStart) {
+    errors.push('Los postes de bisagra invaden la muesca de la manija: baja el tamaño de espiga, la holgura, o el ancho de manija.');
   }
   if (errors.length > 0) return errors;
 
@@ -291,7 +312,6 @@ const HANDLE_EDGE_WARNING_MARGIN = 10;
 
 function warningsFor({
   jointWidths, t, kerf, tabWidth, hc, rh, tl, Lo, hw,
-  leftPostEnd, rightPostStart, notchStart, notchEnd,
 }) {
   const warnings = commonWarnings({ jointWidths, t, kerf, tabWidth });
   if (hc < 0.1) {
@@ -302,13 +322,6 @@ function warningsFor({
   }
   if (t >= 6 && rh < t) {
     warnings.push(`Con ${t} mm de material, poco material puede quedar alrededor del agujero: revisa el tamaño de espiga.`);
-  }
-  // Cada pared (frontal y trasera) lleva dos postes cerca de sus extremos y
-  // una muesca compartida en el medio. Si la caja es corta de largo, los
-  // postes pueden invadir la muesca (o directamente pisarse entre sí si
-  // Lo es muy chico) — geometría corrupta y silenciosa si no se avisa.
-  if (leftPostEnd >= notchStart || notchEnd >= rightPostStart) {
-    warnings.push('Los postes de bisagra invaden la muesca de la manija: baja el tamaño de espiga, la holgura, o el ancho de manija.');
   }
   if (
     Number.isFinite(hw) && Number.isFinite(Lo)
