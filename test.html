@@ -938,6 +938,8 @@
         ['holgura de agujero negativa', { hingeClearance: -1 }, 'holgura'],
         ['manija sin ancho', { handleWidth: 0 }, 'manija'],
         ['manija más ancha que el frente disponible', { handleWidth: 90 }, 'manija'],
+        ['profundidad de manija negativa', { handleDepth: -5 }, 'profundidad'],
+        ['profundidad de manija cero', { handleDepth: 0 }, 'profundidad'],
       ];
       for (const [name, override, fragment] of cases) {
         const r = buildHingedBox({ ...HINGED, ...override });
@@ -953,6 +955,17 @@
         ['holgura muy chica', { hingeClearance: 0.05 }, 'dura'],
         ['holgura muy grande', { hingeClearance: 4 }, 'floja'],
         ['poco material alrededor del agujero', { thickness: 8, pegDiameter: 4, hingeClearance: 0.2 }, 'material'],
+        // width: 20 con los demás valores canónicos deja spanY = 14 mm y
+        // postWidth = 17 mm (por defecto): 2 * postWidth (34) >= spanY (14),
+        // los dos postes se solapan. Antes de este fix esto no daba ni
+        // error ni aviso pese a que buildSideWall calculaba postNear
+        // negativo (geometría fuera del ancho declarado del panel).
+        ['postes de bisagra que se solapan', { width: 20 }, 'postes'],
+        // handleWidth 40 con los demás valores canónicos: el umbral de
+        // choque (error) es hw + 2*notchWidth >= Lo, es decir hw >= 46 mm
+        // (Lo=80, notchWidth=17). Con hw=40 faltan 6 mm para chocar, dentro
+        // del margen de aviso de 10 mm — no debe bloquear, sí avisar.
+        ['manija cerca del umbral de choque con las espigas', { handleWidth: 40 }, 'cerca'],
       ];
       for (const [name, override, fragment] of cases) {
         const r = buildHingedBox({ ...HINGED, ...override });
@@ -960,6 +973,12 @@
         assert(r.warnings.some((w) => w.toLowerCase().includes(fragment)),
           `${name}: esperaba un aviso con "${fragment}", salió: ${r.warnings.join(' | ') || '(ninguno)'}`);
       }
+      // Regresión: la caja canónica (handleWidth 20 mm por defecto, muy por
+      // debajo del umbral de 46 mm; spanY 74 mm vs 2*postWidth 34 mm) no
+      // debe disparar ninguno de los avisos nuevos ni los ya existentes.
+      const canonRecheck = buildHingedBox(HINGED);
+      assert(canonRecheck.errors.length === 0, `la caja canónica no debería dar error: ${canonRecheck.errors.join(' | ')}`);
+      assert(canonRecheck.warnings.length === 0, `la caja canónica no debería avisar nada: ${canonRecheck.warnings.join(' | ')}`);
       assert(hinged.warnings.length === 0, `la caja canónica no debería avisar nada: ${hinged.warnings.join(' | ')}`);
     });
 

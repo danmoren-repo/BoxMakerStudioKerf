@@ -91,7 +91,9 @@ export function buildHingedBox(params) {
   // el propio arco de la espiga, dando un contorno que se cruza a sí mismo.
   const notchWidth = postWidth;
 
-  const errors = validate({ Lo, Wo, Ho, t, tl, dp, hc, kerf, tabWidth, spanX, spanY, spanZ, hw, notchWidth });
+  const errors = validate({
+    Lo, Wo, Ho, t, tl, dp, hc, kerf, tabWidth, spanX, spanY, spanZ, hw, hd, notchWidth,
+  });
   if (errors.length > 0) return { errors, warnings: [], panels: [] };
 
   const joints = {
@@ -339,7 +341,7 @@ export function buildHingedBox(params) {
     errors,
     warnings: warningsFor({
       jointWidths: [joints.x.width, joints.y.width, joints.z.width],
-      t, kerf, tabWidth, hc, rh,
+      t, kerf, tabWidth, hc, rh, postWidth, spanY, hw, notchWidth, Lo,
     }),
     outer: { length: Lo, width: Wo, height: Ho },
     inner: { length: spanX, width: spanY, height: wallHeight - t },
@@ -348,7 +350,7 @@ export function buildHingedBox(params) {
 }
 
 function validate({
-  Lo, Wo, Ho, t, tl, dp, hc, kerf, tabWidth, spanX, spanY, spanZ, hw, notchWidth,
+  Lo, Wo, Ho, t, tl, dp, hc, kerf, tabWidth, spanX, spanY, spanZ, hw, hd, notchWidth,
 }) {
   const errors = validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho });
   if (errors.length > 0) return errors;
@@ -358,6 +360,7 @@ function validate({
   if (!positive(dp)) errors.push('El diámetro de la espiga debe ser mayor que 0.');
   if (!Number.isFinite(hc) || hc < 0) errors.push('La holgura del agujero no puede ser negativa.');
   if (!positive(hw)) errors.push('El ancho de la manija debe ser mayor que 0.');
+  if (!positive(hd)) errors.push('La profundidad de la manija debe ser mayor que 0.');
   if (errors.length > 0) return errors;
 
   if (kerf >= t) errors.push(KERF_TOO_BIG);
@@ -379,7 +382,19 @@ function validate({
   return errors;
 }
 
-function warningsFor({ jointWidths, t, kerf, tabWidth, hc, rh }) {
+// Margen para el aviso de "manija cerca de chocar": el error bloqueante
+// dispara en hw + 2·notchWidth >= Lo. Avisamos cuando falten menos de 10 mm
+// para llegar ahí (umbral elegido a ojo, no viene del spec) — bastante para
+// cubrir cambios chicos de handleWidth que dejarían la manija a un par de
+// milímetros de las espigas sin llegar a chocar, pero sin disparar con el
+// handleWidth por defecto (20 mm), que queda muy por debajo del choque en
+// la caja canónica (46 mm de umbral con los valores por defecto, a 26 mm
+// de distancia).
+const HANDLE_COLLISION_WARNING_MARGIN = 10;
+
+function warningsFor({
+  jointWidths, t, kerf, tabWidth, hc, rh, postWidth, spanY, hw, notchWidth, Lo,
+}) {
   const warnings = commonWarnings({ jointWidths, t, kerf, tabWidth });
   if (hc < 0.1) {
     warnings.push(`Holgura del agujero de ${hc} mm: la bisagra va a quedar dura, puede no girar.`);
@@ -389,6 +404,20 @@ function warningsFor({ jointWidths, t, kerf, tabWidth, hc, rh }) {
   }
   if (t >= 6 && rh < t) {
     warnings.push(`Con ${t} mm de material, poco material puede quedar alrededor del agujero: revisa el diámetro de espiga.`);
+  }
+  // Los dos postes (uno por esquina trasera) viven dentro del mismo ancho de
+  // pared spanY; si juntos no caben (2 * postWidth >= spanY) se solapan y
+  // postNear en buildSideWall da negativo, sacando puntos fuera del propio
+  // ancho declarado del panel — geometría corrupta y silenciosa.
+  if (Number.isFinite(postWidth) && Number.isFinite(spanY) && 2 * postWidth >= spanY) {
+    warnings.push('Los postes de las dos esquinas traseras se pisan: baja el diámetro de espiga, la holgura, o el margen.');
+  }
+  if (
+    Number.isFinite(hw) && Number.isFinite(notchWidth) && Number.isFinite(Lo)
+    && Lo - 2 * notchWidth - hw > 0
+    && Lo - 2 * notchWidth - hw <= HANDLE_COLLISION_WARNING_MARGIN
+  ) {
+    warnings.push(`La manija (${hw} mm) puede quedar muy cerca de las espigas de bisagra.`);
   }
   return warnings;
 }
