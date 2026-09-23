@@ -19,11 +19,12 @@ const grooveDepthEl = document.getElementById('grooveDepth');
 const grooveAutoEl = document.getElementById('grooveAuto');
 const engraveNote = document.getElementById('engraveNote');
 const hingedFields = document.getElementById('hingedFields');
-const pegDiameterEl = document.getElementById('pegDiameter');
-const pegDiameterAutoEl = document.getElementById('pegDiameterAuto');
+const pegSizeEl = document.getElementById('pegSize');
+const pegSizeAutoEl = document.getElementById('pegSizeAuto');
 const hingeClearanceEl = document.getElementById('hingeClearance');
 const handleWidthEl = document.getElementById('handleWidth');
 const handleDepthEl = document.getElementById('handleDepth');
+const handleDepthAutoEl = document.getElementById('handleDepthAuto');
 
 // Cada tipo de tapa trae su generador y su cálculo de espiga automática: el
 // tramo de junta más corto no es el mismo en una caja cerrada que en una con
@@ -74,12 +75,15 @@ function readParams() {
   hingedFields.hidden = !hinged;
 
   if (hinged) {
-    pegDiameterEl.disabled = pegDiameterAutoEl.checked;
-    if (pegDiameterAutoEl.checked) pegDiameterEl.value = round(4 * params.thickness, 1);
-    params.pegDiameter = parseFloat(pegDiameterEl.value);
+    pegSizeEl.disabled = pegSizeAutoEl.checked;
+    if (pegSizeAutoEl.checked) pegSizeEl.value = round(params.thickness, 2);
+    params.pegSize = parseFloat(pegSizeEl.value);
     params.hingeClearance = number('hingeClearance');
     params.handleWidth = number('handleWidth');
-    params.handleDepth = number('handleDepth');
+
+    handleDepthEl.disabled = handleDepthAutoEl.checked;
+    if (handleDepthAutoEl.checked) handleDepthEl.value = round(params.thickness + 5, 1);
+    params.handleDepth = parseFloat(handleDepthEl.value);
   }
 
   tabWidthEl.disabled = tabAutoEl.checked;

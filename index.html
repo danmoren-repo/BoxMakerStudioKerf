@@ -71,8 +71,10 @@
               acortan un grosor para que el alto total siga siendo el que pediste.
               "Deslizante": la tapa corre dentro de un canal vaciado en laterales y
               fondo, y entra por el frente, que queda más bajo.
-              "Con bisagra": la tapa queda unida por una bisagra del mismo material,
-              gira sobre el canto trasero y pega contra el fondo al abrir del todo.
+              "Con bisagra": la tapa queda unida por una bisagra del mismo material —
+              una espiga cuadrada maciza sale de cada canto lateral, cerca de la
+              esquina trasera, y encaja en un agujero de su pared — gira sobre el
+              canto trasero y pega contra el fondo al abrir del todo.
             </p>
           </div>
 
@@ -108,21 +110,25 @@
 
           <div class="field hinged-fields" id="hingedFields" hidden>
             <div class="field">
-              <label for="pegDiameter">Diámetro de la espiga <span class="unit">mm</span></label>
-              <input type="number" id="pegDiameter" name="pegDiameter" value="12" step="0.5" min="0.1" inputmode="decimal">
+              <label for="pegSize">Tamaño de la espiga <span class="unit">mm</span></label>
+              <input type="number" id="pegSize" name="pegSize" value="3" step="0.5" min="0.1" inputmode="decimal">
               <div class="field-checkbox">
-                <input type="checkbox" id="pegDiameterAuto" name="pegDiameterAuto" checked>
-                <label for="pegDiameterAuto">Automático (4× el grosor)</label>
+                <input type="checkbox" id="pegSizeAuto" name="pegSizeAuto" checked>
+                <label for="pegSizeAuto">Automático (igual al grosor)</label>
               </div>
+              <p class="help">
+                Cuadrado macizo que sale del canto lateral de la tapa, cerca de la
+                esquina trasera. A mano, se calibra cortando.
+              </p>
             </div>
 
             <div class="field">
               <label for="hingeClearance">Holgura del agujero <span class="unit">mm</span></label>
               <input type="number" id="hingeClearance" name="hingeClearance" value="1" step="0.1" min="0" inputmode="decimal">
               <p class="help">
-                Diámetro de más sobre la espiga, para que gire sin trabarse.
-                Calíbrala con una prueba antes de cortar la caja: dura si es poca,
-                bamboleante si es mucha.
+                Diámetro de más sobre el agujero que la espiga necesita para girar
+                sin trabarse. Calíbrala con una prueba antes de cortar la caja:
+                dura si es poca, bamboleante si es mucha.
               </p>
             </div>
 
@@ -133,7 +139,11 @@
 
             <div class="field">
               <label for="handleDepth">Profundidad de la manija <span class="unit">mm</span></label>
-              <input type="number" id="handleDepth" name="handleDepth" value="6" step="0.5" min="1" inputmode="decimal">
+              <input type="number" id="handleDepth" name="handleDepth" value="8" step="0.5" min="1" inputmode="decimal">
+              <div class="field-checkbox">
+                <input type="checkbox" id="handleDepthAuto" name="handleDepthAuto" checked>
+                <label for="handleDepthAuto">Automática (grosor + 5)</label>
+              </div>
             </div>
           </div>
         </fieldset>
