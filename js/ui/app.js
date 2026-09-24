@@ -25,6 +25,11 @@ const hingeClearanceEl = document.getElementById('hingeClearance');
 const handleWidthEl = document.getElementById('handleWidth');
 const handleDepthEl = document.getElementById('handleDepth');
 const handleDepthAutoEl = document.getElementById('handleDepthAuto');
+const flatFields = document.getElementById('flatFields');
+const gripEl = document.getElementById('grip');
+const gripFields = document.getElementById('gripFields');
+const gripDiameterEl = document.getElementById('gripDiameter');
+const gripStemSpanEl = document.getElementById('gripStemSpan');
 
 // Cada tipo de tapa trae su generador y su cálculo de espiga automática: el
 // tramo de junta más corto no es el mismo en una caja cerrada que en una con
@@ -84,6 +89,17 @@ function readParams() {
     handleDepthEl.disabled = handleDepthAutoEl.checked;
     if (handleDepthAutoEl.checked) handleDepthEl.value = round(params.thickness + 5, 1);
     params.handleDepth = parseFloat(handleDepthEl.value);
+  }
+
+  const flat = lidType === 'flat';
+  flatFields.hidden = !flat;
+  if (flat) {
+    params.grip = gripEl.checked;
+    gripFields.hidden = !params.grip;
+    if (params.grip) {
+      params.gripDiameter = parseFloat(gripDiameterEl.value);
+      params.gripStemSpan = parseFloat(gripStemSpanEl.value);
+    }
   }
 
   tabWidthEl.disabled = tabAutoEl.checked;

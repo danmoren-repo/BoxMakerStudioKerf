@@ -26,6 +26,10 @@
     import { buildSlidingBox } from './js/boxes/sliding-box.js';
     import { buildHingedBox } from './js/boxes/hinged-box.js';
     import { renderBox } from './js/render/svg-render.js';
+    import {
+      gripDiameterFor, gripStemSpanFor, gripGeometry, crossHoleFeature,
+      buildTopHole, buildInsertPanel, buildHandlePanels, validateGrip, gripWarnings,
+    } from './js/boxes/lid-grip.js';
 
     const results = [];
     const TOL = 1e-6;
@@ -991,6 +995,280 @@
       assert(canonRecheck.errors.length === 0, `la caja canónica no debería dar error: ${canonRecheck.errors.join(' | ')}`);
       assert(canonRecheck.warnings.length === 0, `la caja canónica no debería avisar nada: ${canonRecheck.warnings.join(' | ')}`);
       assert(hinged.warnings.length === 0, `la caja canónica no debería avisar nada: ${hinged.warnings.join(' | ')}`);
+    });
+
+    // --- Tapa plana con agarradera: geometría base ---
+
+    // Verifica que un contorno sea un polígono simple: sin cruces
+    // transversales, sin aristas colineares que se solapen más allá de un
+    // punto, y sin aristas que rocen un vértice ajeno a mitad de camino.
+    // (Si `assertSimplePolygon` ya existe en este archivo por otra rama
+    // mergeada, borrar esta definición y usar la que ya está.)
+    function assertSimplePolygon(points, label) {
+      const n = points.length;
+      const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+      const collinear = (o, a, b) => Math.abs(cross(o, a, b)) < 1e-6;
+      const segInt = (p1, p2, p3, p4) => {
+        const d1 = cross(p3, p4, p1); const d2 = cross(p3, p4, p2);
+        const d3 = cross(p1, p2, p3); const d4 = cross(p1, p2, p4);
+        return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+      };
+      const onSegment = (p, a, b) => {
+        if (Math.abs(cross(a, b, p)) > 1e-6) return false;
+        return p.x >= Math.min(a.x, b.x) - 1e-7 && p.x <= Math.max(a.x, b.x) + 1e-7
+          && p.y >= Math.min(a.y, b.y) - 1e-7 && p.y <= Math.max(a.y, b.y) + 1e-7;
+      };
+      for (let i = 0; i < n; i++) {
+        const a1 = points[i]; const a2 = points[(i + 1) % n];
+        for (let j = 0; j < n; j++) {
+          const adjacent = j === (i + 1) % n || i === (j + 1) % n;
+          if (adjacent || i === j) continue;
+          const b1 = points[j]; const b2 = points[(j + 1) % n];
+          if (j > i) {
+            assert(!segInt(a1, a2, b1, b2), `${label}: cruce transversal entre las aristas ${i} y ${j}`);
+            if (collinear(a1, a2, b1) && collinear(a1, a2, b2)) {
+              const ox = Math.max(0, Math.min(Math.max(a1.x, a2.x), Math.max(b1.x, b2.x)) - Math.max(Math.min(a1.x, a2.x), Math.min(b1.x, b2.x)));
+              const oy = Math.max(0, Math.min(Math.max(a1.y, a2.y), Math.max(b1.y, b2.y)) - Math.max(Math.min(a1.y, a2.y), Math.min(b1.y, b2.y)));
+              assert(ox <= 1e-6 && oy <= 1e-6, `${label}: solape colinear entre las aristas ${i} y ${j}`);
+            }
+          }
+          if (j !== i && j !== (i + 1) % n) {
+            const v = points[j];
+            if (onSegment(v, a1, a2)) {
+              const atEnd = Math.hypot(v.x - a1.x, v.y - a1.y) < 1e-7 || Math.hypot(v.x - a2.x, v.y - a2.y) < 1e-7;
+              assert(atEnd, `${label}: la arista ${i} roza el vértice ${j} a mitad de camino`);
+            }
+          }
+        }
+      }
+    }
+
+    function insidePolygonGrip(pt, points) {
+      let inside = false;
+      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const xi = points[i].x; const yi = points[i].y; const xj = points[j].x; const yj = points[j].y;
+        if ((yi > pt.y) !== (yj > pt.y) && pt.x < ((xj - xi) * (pt.y - yi)) / (yj - yi) + xi) inside = !inside;
+      }
+      return inside;
+    }
+
+    check('agarradera: gripDiameterFor/gripStemSpanFor tienen los defaults del spec', () => {
+      assert(near(gripDiameterFor({}), 30), 'default de diámetro debería ser 30');
+      assert(near(gripStemSpanFor({}), 16), 'default de ancho de agujero debería ser 16');
+      assert(near(gripDiameterFor({ gripDiameter: 40 }), 40), 'debería respetar el valor explícito');
+      assert(near(gripStemSpanFor({ gripStemSpan: 12 }), 12), 'debería respetar el valor explícito');
+    });
+
+    check('agarradera: gripGeometry reproduce el ejemplo de referencia del spec (t=3, gd=30, gs=16)', () => {
+      const geo = gripGeometry({ t: 3, gd: 30, gs: 16 });
+      assert(near(geo.R, 15), `R=${geo.R}, esperaba 15`);
+      assert(near(geo.D, 6), `D=${geo.D}, esperaba 6`);
+      assert(near(geo.H, 21), `H=${geo.H}, esperaba 21`);
+      assert(near(geo.splitY, -4.5), `splitY=${geo.splitY}, esperaba -4.5`);
+      assert(near(geo.archCrossY, -14.9248, 0.001), `archCrossY=${geo.archCrossY}, esperaba ≈-14.9248`);
+    });
+
+    check('agarradera: crossHoleFeature arma una cruz simétrica de 12 puntos, simple, con el bbox esperado', () => {
+      const hole = crossHoleFeature({
+        id: 'test-hole', cx: 50, cy: 40, span: 16, thickness: 3,
+      });
+      assert(hole.kind === 'hole', 'kind debería ser hole');
+      assert(hole.points.length === 12, `${hole.points.length} puntos, esperaba 12`);
+      const bb = boundingBox(hole.points);
+      assert(near(bb.minX, 42) && near(bb.maxX, 58), `bbox X [${bb.minX},${bb.maxX}], esperaba [42,58]`);
+      assert(near(bb.minY, 32) && near(bb.maxY, 48), `bbox Y [${bb.minY},${bb.maxY}], esperaba [32,48]`);
+      assertSimplePolygon(hole.points, 'crossHoleFeature');
+      assert(insidePolygonGrip({ x: 50, y: 32.5 }, hole.points), 'el brazo de arriba debería ser material (dentro del polígono de la cruz)');
+      assert(!insidePolygonGrip({ x: 44, y: 34 }, hole.points), 'la esquina fuera de los brazos debería ser vacío');
+    });
+
+    check('agarradera: buildTopHole queda centrado en Lo × Wo', () => {
+      const hole = buildTopHole({
+        Lo: 200, Wo: 150, gs: 16, t: 3,
+      });
+      const bb = boundingBox(hole.points);
+      const cx = (bb.minX + bb.maxX) / 2;
+      const cy = (bb.minY + bb.maxY) / 2;
+      assert(near(cx, 100), `centro X ${cx}, esperaba 100 (Lo/2)`);
+      assert(near(cy, 75), `centro Y ${cy}, esperaba 75 (Wo/2)`);
+    });
+
+    check('agarradera: buildInsertPanel mide spanX × spanY exacto, con su propio agujero centrado', () => {
+      const material = { thickness: 3, kerf: 0.16, tabWidth: 12 };
+      const insert = buildInsertPanel({
+        spanX: 74, spanY: 74, gs: 16, t: 3, material,
+      });
+      assert(insert.id === 'top-insert', 'id debería ser top-insert');
+      const bb = boundingBox(insert.points);
+      assert(near(bb.minX, 0) && near(bb.maxX, 74), `bbox X [${bb.minX},${bb.maxX}], esperaba [0,74]`);
+      assert(near(bb.minY, 0) && near(bb.maxY, 74), `bbox Y [${bb.minY},${bb.maxY}], esperaba [0,74]`);
+      assertSimplePolygon(insert.points, 'top-insert');
+      assert(insert.features.length === 1, 'debería tener exactamente un agujero');
+      const holeBb = boundingBox(insert.features[0].points);
+      const cx = (holeBb.minX + holeBb.maxX) / 2;
+      const cy = (holeBb.minY + holeBb.maxY) / 2;
+      assert(near(cx, 37) && near(cy, 37), `agujero centrado en (${cx},${cy}), esperaba (37,37)`);
+    });
+
+    const GRIP_GEO = gripGeometry({ t: 3, gd: 30, gs: 16 });
+    const { handleA: GRIP_A, handleB: GRIP_B } = buildHandlePanels(GRIP_GEO);
+
+    check('agarradera: HANDLE-A y HANDLE-B son polígonos simples (sin cruces, solapes, ni aristas que rocen un vértice ajeno)', () => {
+      assertSimplePolygon(GRIP_A.points, 'handle-a');
+      assertSimplePolygon(GRIP_B.points, 'handle-b');
+    });
+
+    check('agarradera: HANDLE-A y HANDLE-B miden lo mismo por fuera (2R de ancho, R+D de alto)', () => {
+      const bbA = boundingBox(GRIP_A.points);
+      const bbB = boundingBox(GRIP_B.points);
+      const expectedWidth = 2 * GRIP_GEO.R;
+      const expectedHeight = GRIP_GEO.R + GRIP_GEO.D;
+      assert(near(bbA.width, expectedWidth, 0.01), `handle-a ancho ${bbA.width}, esperaba ${expectedWidth}`);
+      assert(near(bbB.width, expectedWidth, 0.01), `handle-b ancho ${bbB.width}, esperaba ${expectedWidth}`);
+      assert(near(bbA.height, expectedHeight, 0.01), `handle-a alto ${bbA.height}, esperaba ${expectedHeight}`);
+      // El bbox de handle-b puede quedar levemente más bajo que R+D exacto: su
+      // curva no llega literalmente hasta la punta matemática (270°), se corta
+      // un poco antes en 270°-δ/270°+δ para abrir la ranura — así que su alto
+      // real es una fracción de mm menor a R+D, nunca mayor.
+      assert(bbB.height <= expectedHeight + 0.01, `handle-b alto ${bbB.height} no debería superar ${expectedHeight}`);
+      assert(bbB.height > expectedHeight - 0.1, `handle-b alto ${bbB.height} se aleja demasiado de ${expectedHeight}`);
+    });
+
+    check('agarradera: la ranura de HANDLE-A mide t de ancho y llega hasta splitY', () => {
+      const notchPts = GRIP_A.points.filter((p) => near(Math.abs(p.x), GRIP_GEO.t / 2, 1e-6));
+      assert(notchPts.length === 4, `${notchPts.length} vértices cerca de x=±t/2, esperaba 4`);
+      const ys = notchPts.map((p) => p.y);
+      assert(near(Math.min(...ys), GRIP_GEO.splitY, 0.01), `fondo de la ranura en y=${Math.min(...ys)}, esperaba ${GRIP_GEO.splitY}`);
+      assert(near(Math.max(...ys), GRIP_GEO.D, 0.01), `boca de la ranura en y=${Math.max(...ys)}, esperaba ${GRIP_GEO.D} (fondo del vástago)`);
+    });
+
+    check('agarradera: la ranura de HANDLE-B mide t de ancho, se abre en la curva del domo, y llega hasta splitY', () => {
+      const notchPts = GRIP_B.points.filter((p) => near(Math.abs(p.x), GRIP_GEO.t / 2, 1e-6));
+      assert(notchPts.length === 4, `${notchPts.length} vértices cerca de x=±t/2, esperaba 4 (2 del arco, 2 del fondo de la ranura)`);
+      const ys = notchPts.map((p) => p.y);
+      assert(near(Math.min(...ys), GRIP_GEO.archCrossY, 0.01), `boca de la ranura en y=${Math.min(...ys)}, esperaba ${GRIP_GEO.archCrossY} (cruce con la curva)`);
+      assert(near(Math.max(...ys), GRIP_GEO.splitY, 0.01), `fondo de la ranura en y=${Math.max(...ys)}, esperaba ${GRIP_GEO.splitY}`);
+    });
+
+    check('agarradera: las dos ranuras (HANDLE-A y HANDLE-B) llegan exactamente al mismo plano de unión', () => {
+      // HANDLE-A: el fondo de su ranura es el mínimo y entre sus puntos en
+      // x=±t/2 (su boca, en el fondo del vástago, es el máximo). HANDLE-B: al
+      // revés — su fondo es el MÁXIMO (su boca, más arriba en la curva del
+      // domo, es el mínimo). Cada lado deriva su propio valor de sus propios
+      // puntos, sin asumir de antemano que van a coincidir.
+      const notchYs = (points) => points
+        .filter((p) => near(Math.abs(p.x), GRIP_GEO.t / 2, 1e-6))
+        .map((p) => p.y);
+      const splitA = Math.min(...notchYs(GRIP_A.points));
+      const splitB = Math.max(...notchYs(GRIP_B.points));
+      assert(near(splitA, splitB, 1e-6), `handle-a corta en y=${splitA}, handle-b en y=${splitB} — no quedan al ras`);
+    });
+
+    check('agarradera: el domo de HANDLE-A clasifica como material, y la ranura como vacío (ray-casting)', () => {
+      assert(insidePolygonGrip({ x: 0, y: -GRIP_GEO.R + 1 }, GRIP_A.points), 'la punta del domo debería ser material');
+      assert(insidePolygonGrip({ x: GRIP_GEO.gs / 2 - 1, y: GRIP_GEO.D - 1 }, GRIP_A.points), 'el vástago fuera de la ranura debería ser material');
+      assert(!insidePolygonGrip({ x: 0, y: GRIP_GEO.D - 0.5 }, GRIP_A.points), 'el centro de la ranura, cerca de la boca, debería ser vacío');
+    });
+
+    check('agarradera: validateGrip — la caja canónica (t=3, gd=30, gs=16, hueco 74×74) no da errores', () => {
+      const errors = validateGrip({
+        t: 3, gd: 30, gs: 16, spanX: 74, spanY: 74,
+      });
+      assert(errors.length === 0, errors.join(' | '));
+    });
+
+    check('agarradera: validateGrip — errores que bloquean la generación', () => {
+      const BASE = {
+        t: 3, gd: 30, gs: 16, spanX: 74, spanY: 74,
+      };
+      const cases = [
+        ['diámetro inválido', { gd: 0 }, 'diámetro'],
+        ['ancho de agujero inválido', { gs: 0 }, 'agujero'],
+        ['vástago demasiado angosto', { gs: 6 }, 'vástago'],
+        ['domo demasiado chico para el agujero', { gd: 18, gs: 16 }, 'perilla'],
+        ['agujero no entra en el hueco interno', { gs: 16, spanX: 18, spanY: 18 }, 'hueco interno'],
+      ];
+      for (const [name, override, fragment] of cases) {
+        const errors = validateGrip({ ...BASE, ...override });
+        assert(errors.length > 0, `${name}: no produjo error`);
+        assert(errors.some((e) => e.toLowerCase().includes(fragment)),
+          `${name}: esperaba un error con "${fragment}", salió: ${errors.join(' | ')}`);
+      }
+    });
+
+    check('agarradera: gripWarnings — reborde angosto avisa, reborde amplio no avisa nada', () => {
+      const narrow = gripWarnings({ gd: 22, gs: 16 }); // reborde (22-16)/2 = 3 < 5
+      assert(narrow.some((w) => w.toLowerCase().includes('reborde')), `esperaba aviso de reborde, salió: ${narrow.join(' | ')}`);
+      const wide = gripWarnings({ gd: 30, gs: 16 }); // reborde (30-16)/2 = 7 >= 5
+      assert(wide.length === 0, `no debería avisar nada, salió: ${wide.join(' | ')}`);
+    });
+
+    // --- Tapa plana con agarradera: integración con buildBox() (simple-box.js) ---
+
+    const FLAT_GRIP = {
+      length: 80, width: 80, height: 80,
+      thickness: 3, kerf: 0.16, tabWidth: 12,
+      dimensionMode: 'outer', lidType: 'flat', grip: true,
+    };
+
+    check('agarradera: tapa plana SIN agarradera sigue dando exactamente 6 piezas (regresión)', () => {
+      const box = buildBox({ ...FLAT_GRIP, grip: false });
+      assert(box.errors.length === 0, box.errors.join(' | '));
+      assert(box.panels.length === 6, `${box.panels.length} piezas, esperaba 6`);
+      assert(box.grip === undefined, 'no debería traer campo grip cuando está desactivada');
+      const top = box.panels.find((p) => p.id === 'top');
+      assert(!top.features, 'TOP no debería tener features sin la agarradera');
+    });
+
+    check('agarradera: tapa plana CON agarradera da 9 piezas, sin errores, con el campo grip', () => {
+      const box = buildBox(FLAT_GRIP);
+      assert(box.errors.length === 0, box.errors.join(' | '));
+      assert(box.panels.length === 9, `${box.panels.length} piezas, esperaba 9`);
+      for (const id of ['bottom', 'front', 'left', 'top', 'back', 'right', 'top-insert', 'handle-a', 'handle-b']) {
+        assert(box.panels.find((p) => p.id === id), `falta la pieza ${id}`);
+      }
+      assert(near(box.grip.diameter, 30), `grip.diameter=${box.grip.diameter}, esperaba 30`);
+      assert(near(box.grip.stemSpan, 16), `grip.stemSpan=${box.grip.stemSpan}, esperaba 16`);
+      const top = box.panels.find((p) => p.id === 'top');
+      assert(top.features.length === 1, 'TOP debería tener exactamente un agujero');
+    });
+
+    check('agarradera: el agujero de TOP y el de TOP-INSERT quedan alineados una vez centrado el inserto', () => {
+      const box = buildBox(FLAT_GRIP);
+      const top = box.panels.find((p) => p.id === 'top');
+      const insert = box.panels.find((p) => p.id === 'top-insert');
+      const topHoleBb = boundingBox(top.features[0].points);
+      const insertHoleBb = boundingBox(insert.features[0].points);
+      const t = FLAT_GRIP.thickness;
+      // TOP-INSERT se centra dentro del hueco interno de TOP: su origen local
+      // (0,0) cae en el absoluto (t,t) — un grosor de pared en cada eje.
+      const insertHoleAbsX = (insertHoleBb.minX + insertHoleBb.maxX) / 2 + t;
+      const insertHoleAbsY = (insertHoleBb.minY + insertHoleBb.maxY) / 2 + t;
+      const topHoleX = (topHoleBb.minX + topHoleBb.maxX) / 2;
+      const topHoleY = (topHoleBb.minY + topHoleBb.maxY) / 2;
+      assert(near(topHoleX, insertHoleAbsX, 0.01), `agujero de TOP en x=${topHoleX}, el de TOP-INSERT (centrado) cae en x=${insertHoleAbsX}`);
+      assert(near(topHoleY, insertHoleAbsY, 0.01), `agujero de TOP en y=${topHoleY}, el de TOP-INSERT (centrado) cae en y=${insertHoleAbsY}`);
+    });
+
+    check('agarradera: el contorno de las 9 piezas es siempre un polígono simple', () => {
+      const box = buildBox(FLAT_GRIP);
+      for (const p of box.panels) {
+        assertSimplePolygon(p.points, p.id);
+      }
+    });
+
+    check('agarradera: errores del box completo cuando la agarradera no entra en la caja', () => {
+      const tooSmall = buildBox({
+        ...FLAT_GRIP, length: 20, width: 20,
+      });
+      assert(tooSmall.errors.length > 0, 'debería dar error con una caja demasiado chica para la agarradera');
+      assert(tooSmall.panels.length === 0, 'no debería devolver piezas si hay error');
+    });
+
+    check('agarradera: otros tipos de tapa (finger/sliding/hinged) no se ven afectados por params.grip', () => {
+      const withStrayGrip = buildBox({ ...BASE, grip: true });
+      const without = buildBox(BASE);
+      assert(withStrayGrip.panels.length === without.panels.length, 'un grip:true en lidType finger no debería agregar piezas');
     });
 
     const failed = results.filter((r) => !r.ok);
