@@ -75,6 +75,9 @@
               una espiga cuadrada maciza sale de cada canto lateral, cerca de la
               esquina trasera, y encaja en un agujero de su pared — gira sobre el
               canto trasero y pega contra el fondo al abrir del todo.
+              Con la casilla "Agarradera" (solo disponible con tapa
+              "Plana"), se le agrega una perilla armada de dos piezas que
+              atraviesa la tapa y un inserto pegado por debajo.
             </p>
           </div>
 
@@ -144,6 +147,32 @@
                 <input type="checkbox" id="handleDepthAuto" name="handleDepthAuto" checked>
                 <label for="handleDepthAuto">Automática (grosor + 5)</label>
               </div>
+            </div>
+          </div>
+
+          <div class="field flat-fields" id="flatFields" hidden>
+            <div class="field-checkbox">
+              <input type="checkbox" id="grip" name="grip">
+              <label for="grip">Agarradera</label>
+            </div>
+            <div class="field grip-fields" id="gripFields" hidden>
+              <div class="field">
+                <label for="gripDiameter">Diámetro de la perilla <span class="unit">mm</span></label>
+                <input type="number" id="gripDiameter" name="gripDiameter" value="30" step="1" min="1" inputmode="decimal">
+              </div>
+              <div class="field">
+                <label for="gripStemSpan">Ancho del agujero en cruz <span class="unit">mm</span></label>
+                <input type="number" id="gripStemSpan" name="gripStemSpan" value="16" step="1" min="1" inputmode="decimal">
+              </div>
+              <p class="help">
+                Perilla armada de dos piezas en domo que se encastran a 90°
+                y bajan a presión por un agujero en cruz en la tapa y otro
+                igual en un inserto pegado por debajo. El diámetro es el
+                tamaño del domo (lo que se agarra); el ancho del agujero es
+                cuánto vástago tiene que atravesar las dos capas — tiene que
+                quedar bastante más chico que el diámetro, para que el domo
+                se apoye sobre la tapa sin pasar por el agujero.
+              </p>
             </div>
           </div>
         </fieldset>
