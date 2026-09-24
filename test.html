@@ -28,7 +28,7 @@
     import { renderBox } from './js/render/svg-render.js';
     import {
       gripDiameterFor, gripStemSpanFor, gripGeometry, crossHoleFeature,
-      buildTopHole, buildInsertPanel,
+      buildTopHole, buildInsertPanel, buildHandlePanels,
     } from './js/boxes/lid-grip.js';
 
     const results = [];
@@ -1108,6 +1108,65 @@
       const cx = (holeBb.minX + holeBb.maxX) / 2;
       const cy = (holeBb.minY + holeBb.maxY) / 2;
       assert(near(cx, 37) && near(cy, 37), `agujero centrado en (${cx},${cy}), esperaba (37,37)`);
+    });
+
+    const GRIP_GEO = gripGeometry({ t: 3, gd: 30, gs: 16 });
+    const { handleA: GRIP_A, handleB: GRIP_B } = buildHandlePanels(GRIP_GEO);
+
+    check('agarradera: HANDLE-A y HANDLE-B son polígonos simples (sin cruces, solapes, ni aristas que rocen un vértice ajeno)', () => {
+      assertSimplePolygon(GRIP_A.points, 'handle-a');
+      assertSimplePolygon(GRIP_B.points, 'handle-b');
+    });
+
+    check('agarradera: HANDLE-A y HANDLE-B miden lo mismo por fuera (2R de ancho, R+D de alto)', () => {
+      const bbA = boundingBox(GRIP_A.points);
+      const bbB = boundingBox(GRIP_B.points);
+      const expectedWidth = 2 * GRIP_GEO.R;
+      const expectedHeight = GRIP_GEO.R + GRIP_GEO.D;
+      assert(near(bbA.width, expectedWidth, 0.01), `handle-a ancho ${bbA.width}, esperaba ${expectedWidth}`);
+      assert(near(bbB.width, expectedWidth, 0.01), `handle-b ancho ${bbB.width}, esperaba ${expectedWidth}`);
+      assert(near(bbA.height, expectedHeight, 0.01), `handle-a alto ${bbA.height}, esperaba ${expectedHeight}`);
+      // El bbox de handle-b puede quedar levemente más bajo que R+D exacto: su
+      // curva no llega literalmente hasta la punta matemática (270°), se corta
+      // un poco antes en 270°-δ/270°+δ para abrir la ranura — así que su alto
+      // real es una fracción de mm menor a R+D, nunca mayor.
+      assert(bbB.height <= expectedHeight + 0.01, `handle-b alto ${bbB.height} no debería superar ${expectedHeight}`);
+      assert(bbB.height > expectedHeight - 0.1, `handle-b alto ${bbB.height} se aleja demasiado de ${expectedHeight}`);
+    });
+
+    check('agarradera: la ranura de HANDLE-A mide t de ancho y llega hasta splitY', () => {
+      const notchPts = GRIP_A.points.filter((p) => near(Math.abs(p.x), GRIP_GEO.t / 2, 1e-6));
+      assert(notchPts.length === 4, `${notchPts.length} vértices cerca de x=±t/2, esperaba 4`);
+      const ys = notchPts.map((p) => p.y);
+      assert(near(Math.min(...ys), GRIP_GEO.splitY, 0.01), `fondo de la ranura en y=${Math.min(...ys)}, esperaba ${GRIP_GEO.splitY}`);
+      assert(near(Math.max(...ys), GRIP_GEO.D, 0.01), `boca de la ranura en y=${Math.max(...ys)}, esperaba ${GRIP_GEO.D} (fondo del vástago)`);
+    });
+
+    check('agarradera: la ranura de HANDLE-B mide t de ancho, se abre en la curva del domo, y llega hasta splitY', () => {
+      const notchPts = GRIP_B.points.filter((p) => near(Math.abs(p.x), GRIP_GEO.t / 2, 1e-6));
+      assert(notchPts.length === 4, `${notchPts.length} vértices cerca de x=±t/2, esperaba 4 (2 del arco, 2 del fondo de la ranura)`);
+      const ys = notchPts.map((p) => p.y);
+      assert(near(Math.min(...ys), GRIP_GEO.archCrossY, 0.01), `boca de la ranura en y=${Math.min(...ys)}, esperaba ${GRIP_GEO.archCrossY} (cruce con la curva)`);
+      assert(near(Math.max(...ys), GRIP_GEO.splitY, 0.01), `fondo de la ranura en y=${Math.max(...ys)}, esperaba ${GRIP_GEO.splitY}`);
+    });
+
+    check('agarradera: las dos ranuras (HANDLE-A y HANDLE-B) llegan exactamente al mismo plano de unión', () => {
+      const slotBottomY = (points) => {
+        // Find the y-coordinate of the slot bottom plane (splitY) by looking for points
+        // at x=±t/2 that match splitY (the common union plane)
+        const notchPts = points.filter((p) => near(Math.abs(p.x), GRIP_GEO.t / 2, 1e-6) && near(p.y, GRIP_GEO.splitY, 0.01));
+        assert(notchPts.length >= 2, 'slot bottom not found at splitY');
+        return GRIP_GEO.splitY;
+      };
+      const splitA = slotBottomY(GRIP_A.points);
+      const splitB = slotBottomY(GRIP_B.points);
+      assert(near(splitA, splitB, 1e-6), `handle-a corta en y=${splitA}, handle-b en y=${splitB} — no quedan al ras`);
+    });
+
+    check('agarradera: el domo de HANDLE-A clasifica como material, y la ranura como vacío (ray-casting)', () => {
+      assert(insidePolygonGrip({ x: 0, y: -GRIP_GEO.R + 1 }, GRIP_A.points), 'la punta del domo debería ser material');
+      assert(insidePolygonGrip({ x: GRIP_GEO.gs / 2 - 1, y: GRIP_GEO.D - 1 }, GRIP_A.points), 'el vástago fuera de la ranura debería ser material');
+      assert(!insidePolygonGrip({ x: 0, y: GRIP_GEO.D - 0.5 }, GRIP_A.points), 'el centro de la ranura, cerca de la boca, debería ser vacío');
     });
 
     const failed = results.filter((r) => !r.ok);

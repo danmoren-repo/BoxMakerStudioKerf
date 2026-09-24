@@ -100,4 +100,101 @@ export function buildInsertPanel({
   };
 }
 
+const ARC_STEPS = 32;
+
+// Mismo patrón que el arco tesselado de handleCapPoints en hinged-box.js:
+// centro (cx,cy), ángulo 180°→(cx-radius,cy), 270°→(cx,cy-radius) (el
+// punto más arriba, y crece hacia abajo), 360°→(cx+radius,cy). Un barrido
+// de 180 a 360 traza un semicírculo que abulta hacia arriba sobre una
+// base horizontal en y=cy.
+function arc(cx, cy, radius, fromDeg, toDeg, steps = ARC_STEPS) {
+  const pts = [];
+  for (let i = 0; i <= steps; i++) {
+    const a = ((fromDeg + (toDeg - fromDeg) * (i / steps)) * Math.PI) / 180;
+    pts.push({ x: cx + radius * Math.cos(a), y: cy + radius * Math.sin(a) });
+  }
+  return pts;
+}
+
+// HANDLE-A: domo intacto (sin tocar la curva), con la ranura de encastre
+// abierta en el canto recto de ABAJO (el fondo del vástago), subiendo
+// hasta el plano de unión splitY. Sólo líneas rectas, ningún cálculo de
+// arco hace falta para la ranura misma — el domo se centra en (0,0), así
+// que el primer punto del arco (180°) ya es (-R,0): no hace falta repetir
+// ese punto a mano antes de empezar el arco.
+function buildHandleBottomSlotted({
+  R, gs, t, D, splitY,
+}) {
+  return [
+    ...arc(0, 0, R, 180, 360),
+    { x: gs / 2, y: 0 },
+    { x: gs / 2, y: D },
+    { x: t / 2, y: D },
+    { x: t / 2, y: splitY },
+    { x: -t / 2, y: splitY },
+    { x: -t / 2, y: D },
+    { x: -gs / 2, y: D },
+    { x: -gs / 2, y: 0 },
+  ];
+}
+
+// HANDLE-B: la ranura se abre en la PUNTA del domo (la curva), no en el
+// vástago (que acá queda macizo). deltaDeg es el ángulo, medido desde el
+// ápice (270°), donde la pared de la ranura (x = ±t/2) cruza la curva:
+// sale de resolver R·cos(270°−δ) = −t/2 con la misma convención de arc()
+// de arriba, dando sin δ = t/(2R). El arco de 180° a 270−δ TERMINA
+// exactamente en (−t/2, archCrossY) — y el de 270+δ a 360 EMPIEZA
+// exactamente en (t/2, archCrossY) — por eso esos dos puntos no se repiten
+// a mano entre el arco y la ranura, sólo el fondo de la ranura (splitY) sí
+// hace falta escribirlo explícito.
+function buildHandleApexSlotted({
+  R, gs, t, D, splitY, archCrossY,
+}) {
+  const deltaDeg = (Math.asin(t / (2 * R)) * 180) / Math.PI;
+  return [
+    ...arc(0, 0, R, 180, 270 - deltaDeg),
+    { x: -t / 2, y: splitY },
+    { x: t / 2, y: splitY },
+    ...arc(0, 0, R, 270 + deltaDeg, 360),
+    { x: gs / 2, y: 0 },
+    { x: gs / 2, y: D },
+    { x: -gs / 2, y: D },
+    { x: -gs / 2, y: 0 },
+  ];
+}
+
+export function buildHandlePanels({
+  R, gs, t, D, splitY, archCrossY,
+}) {
+  const edges = {
+    top: { gender: 'plain' },
+    bottom: { gender: 'plain' },
+    left: { gender: 'plain' },
+    right: { gender: 'plain' },
+  };
+  const bboxWidth = 2 * R;
+  const bboxHeight = R + D;
+  const handleA = {
+    id: 'handle-a',
+    label: 'HANDLE-A',
+    width: bboxWidth,
+    height: bboxHeight,
+    edges,
+    points: buildHandleBottomSlotted({
+      R, gs, t, D, splitY,
+    }),
+  };
+  const handleB = {
+    id: 'handle-b',
+    label: 'HANDLE-B',
+    width: bboxWidth,
+    height: bboxHeight,
+    edges,
+    points: buildHandleApexSlotted({
+      R, gs, t, D, splitY, archCrossY,
+    }),
+  };
+  return { handleA, handleB };
+}
+
 export { EDGE_MARGIN };
