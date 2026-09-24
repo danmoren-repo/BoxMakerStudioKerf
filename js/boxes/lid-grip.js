@@ -197,4 +197,39 @@ export function buildHandlePanels({
   return { handleA, handleB };
 }
 
+export function validateGrip({
+  t, gd, gs, spanX, spanY,
+}) {
+  const errors = [];
+  const positive = (v) => Number.isFinite(v) && v > 0;
+  if (!positive(gd)) errors.push('El diámetro de la perilla debe ser mayor que 0.');
+  if (!positive(gs)) errors.push('El ancho del agujero en cruz debe ser mayor que 0.');
+  if (errors.length > 0) return errors;
+
+  if (gs <= t + 2 * EDGE_MARGIN) {
+    errors.push(`El vástago de la perilla (${gs} mm) es demasiado angosto para ${t} mm de material: no queda pared a los costados de la ranura.`);
+  }
+  if (gd <= gs + 2 * EDGE_MARGIN) {
+    errors.push(`La perilla (${gd} mm de diámetro) es demasiado chica, o el agujero (${gs} mm) demasiado ancho: el domo no alcanza a apoyarse sobre la tapa.`);
+  }
+  if (gs + 2 * EDGE_MARGIN >= Math.min(spanX, spanY)) {
+    errors.push(`El material es demasiado grueso, o la perilla demasiado ancha, para una caja de este tamaño: el agujero en cruz (${gs} mm) no cabe dentro del hueco interno.`);
+  }
+  return errors;
+}
+
+// Margen del reborde del domo (gd−gs)/2 por debajo del cual avisamos que
+// puede costar agarrarla — umbral elegido a ojo, mayor que el margen de
+// error (EDGE_MARGIN = 2) para que quede una franja de aviso antes de
+// llegar al error bloqueante.
+const GRIP_RIM_WARNING_MARGIN = 5;
+
+export function gripWarnings({ gd, gs }) {
+  const warnings = [];
+  if (Number.isFinite(gd) && Number.isFinite(gs) && (gd - gs) / 2 < GRIP_RIM_WARNING_MARGIN) {
+    warnings.push(`El reborde de la perilla queda angosto (${((gd - gs) / 2).toFixed(1)} mm): puede costar agarrarla.`);
+  }
+  return warnings;
+}
+
 export { EDGE_MARGIN };

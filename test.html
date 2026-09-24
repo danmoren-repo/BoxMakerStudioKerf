@@ -28,7 +28,7 @@
     import { renderBox } from './js/render/svg-render.js';
     import {
       gripDiameterFor, gripStemSpanFor, gripGeometry, crossHoleFeature,
-      buildTopHole, buildInsertPanel, buildHandlePanels,
+      buildTopHole, buildInsertPanel, buildHandlePanels, validateGrip, gripWarnings,
     } from './js/boxes/lid-grip.js';
 
     const results = [];
@@ -1167,6 +1167,39 @@
       assert(insidePolygonGrip({ x: 0, y: -GRIP_GEO.R + 1 }, GRIP_A.points), 'la punta del domo debería ser material');
       assert(insidePolygonGrip({ x: GRIP_GEO.gs / 2 - 1, y: GRIP_GEO.D - 1 }, GRIP_A.points), 'el vástago fuera de la ranura debería ser material');
       assert(!insidePolygonGrip({ x: 0, y: GRIP_GEO.D - 0.5 }, GRIP_A.points), 'el centro de la ranura, cerca de la boca, debería ser vacío');
+    });
+
+    check('agarradera: validateGrip — la caja canónica (t=3, gd=30, gs=16, hueco 74×74) no da errores', () => {
+      const errors = validateGrip({
+        t: 3, gd: 30, gs: 16, spanX: 74, spanY: 74,
+      });
+      assert(errors.length === 0, errors.join(' | '));
+    });
+
+    check('agarradera: validateGrip — errores que bloquean la generación', () => {
+      const BASE = {
+        t: 3, gd: 30, gs: 16, spanX: 74, spanY: 74,
+      };
+      const cases = [
+        ['diámetro inválido', { gd: 0 }, 'diámetro'],
+        ['ancho de agujero inválido', { gs: 0 }, 'agujero'],
+        ['vástago demasiado angosto', { gs: 6 }, 'vástago'],
+        ['domo demasiado chico para el agujero', { gd: 18, gs: 16 }, 'perilla'],
+        ['agujero no entra en el hueco interno', { gs: 16, spanX: 18, spanY: 18 }, 'hueco interno'],
+      ];
+      for (const [name, override, fragment] of cases) {
+        const errors = validateGrip({ ...BASE, ...override });
+        assert(errors.length > 0, `${name}: no produjo error`);
+        assert(errors.some((e) => e.toLowerCase().includes(fragment)),
+          `${name}: esperaba un error con "${fragment}", salió: ${errors.join(' | ')}`);
+      }
+    });
+
+    check('agarradera: gripWarnings — reborde angosto avisa, reborde amplio no avisa nada', () => {
+      const narrow = gripWarnings({ gd: 22, gs: 16 }); // reborde (22-16)/2 = 3 < 5
+      assert(narrow.some((w) => w.toLowerCase().includes('reborde')), `esperaba aviso de reborde, salió: ${narrow.join(' | ')}`);
+      const wide = gripWarnings({ gd: 30, gs: 16 }); // reborde (30-16)/2 = 7 >= 5
+      assert(wide.length === 0, `no debería avisar nada, salió: ${wide.join(' | ')}`);
     });
 
     const failed = results.filter((r) => !r.ok);
