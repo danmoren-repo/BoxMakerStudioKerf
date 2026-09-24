@@ -1151,15 +1151,16 @@
     });
 
     check('agarradera: las dos ranuras (HANDLE-A y HANDLE-B) llegan exactamente al mismo plano de unión', () => {
-      const slotBottomY = (points) => {
-        // Find the y-coordinate of the slot bottom plane (splitY) by looking for points
-        // at x=±t/2 that match splitY (the common union plane)
-        const notchPts = points.filter((p) => near(Math.abs(p.x), GRIP_GEO.t / 2, 1e-6) && near(p.y, GRIP_GEO.splitY, 0.01));
-        assert(notchPts.length >= 2, 'slot bottom not found at splitY');
-        return GRIP_GEO.splitY;
-      };
-      const splitA = slotBottomY(GRIP_A.points);
-      const splitB = slotBottomY(GRIP_B.points);
+      // HANDLE-A: el fondo de su ranura es el mínimo y entre sus puntos en
+      // x=±t/2 (su boca, en el fondo del vástago, es el máximo). HANDLE-B: al
+      // revés — su fondo es el MÁXIMO (su boca, más arriba en la curva del
+      // domo, es el mínimo). Cada lado deriva su propio valor de sus propios
+      // puntos, sin asumir de antemano que van a coincidir.
+      const notchYs = (points) => points
+        .filter((p) => near(Math.abs(p.x), GRIP_GEO.t / 2, 1e-6))
+        .map((p) => p.y);
+      const splitA = Math.min(...notchYs(GRIP_A.points));
+      const splitB = Math.max(...notchYs(GRIP_B.points));
       assert(near(splitA, splitB, 1e-6), `handle-a corta en y=${splitA}, handle-b en y=${splitB} — no quedan al ras`);
     });
 
@@ -1230,6 +1231,23 @@
       assert(near(box.grip.stemSpan, 16), `grip.stemSpan=${box.grip.stemSpan}, esperaba 16`);
       const top = box.panels.find((p) => p.id === 'top');
       assert(top.features.length === 1, 'TOP debería tener exactamente un agujero');
+    });
+
+    check('agarradera: el agujero de TOP y el de TOP-INSERT quedan alineados una vez centrado el inserto', () => {
+      const box = buildBox(FLAT_GRIP);
+      const top = box.panels.find((p) => p.id === 'top');
+      const insert = box.panels.find((p) => p.id === 'top-insert');
+      const topHoleBb = boundingBox(top.features[0].points);
+      const insertHoleBb = boundingBox(insert.features[0].points);
+      const t = FLAT_GRIP.thickness;
+      // TOP-INSERT se centra dentro del hueco interno de TOP: su origen local
+      // (0,0) cae en el absoluto (t,t) — un grosor de pared en cada eje.
+      const insertHoleAbsX = (insertHoleBb.minX + insertHoleBb.maxX) / 2 + t;
+      const insertHoleAbsY = (insertHoleBb.minY + insertHoleBb.maxY) / 2 + t;
+      const topHoleX = (topHoleBb.minX + topHoleBb.maxX) / 2;
+      const topHoleY = (topHoleBb.minY + topHoleBb.maxY) / 2;
+      assert(near(topHoleX, insertHoleAbsX, 0.01), `agujero de TOP en x=${topHoleX}, el de TOP-INSERT (centrado) cae en x=${insertHoleAbsX}`);
+      assert(near(topHoleY, insertHoleAbsY, 0.01), `agujero de TOP en y=${topHoleY}, el de TOP-INSERT (centrado) cae en y=${insertHoleAbsY}`);
     });
 
     check('agarradera: el contorno de las 9 piezas es siempre un polígono simple', () => {

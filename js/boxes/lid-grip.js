@@ -231,5 +231,3 @@ export function gripWarnings({ gd, gs }) {
   }
   return warnings;
 }
-
-export { EDGE_MARGIN };

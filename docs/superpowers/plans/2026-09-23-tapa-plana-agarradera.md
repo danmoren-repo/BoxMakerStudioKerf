@@ -448,7 +448,6 @@ function buildHandleApexSlotted({
     ...arc(0, 0, R, 180, 270 - deltaDeg),
     { x: -t / 2, y: splitY },
     { x: t / 2, y: splitY },
-    { x: t / 2, y: archCrossY },
     ...arc(0, 0, R, 270 + deltaDeg, 360),
     { x: gs / 2, y: 0 },
     { x: gs / 2, y: D },
@@ -540,17 +539,21 @@ check('agarradera: la ranura de HANDLE-B mide t de ancho, se abre en la curva de
   const notchPts = GRIP_B.points.filter((p) => near(Math.abs(p.x), GRIP_GEO.t / 2, 1e-6));
   assert(notchPts.length === 4, `${notchPts.length} vértices cerca de x=±t/2, esperaba 4 (2 del arco, 2 del fondo de la ranura)`);
   const ys = notchPts.map((p) => p.y);
-  assert(near(Math.min(...ys), GRIP_GEO.splitY, 0.01), `fondo de la ranura en y=${Math.min(...ys)}, esperaba ${GRIP_GEO.splitY}`);
-  assert(near(Math.max(...ys), GRIP_GEO.archCrossY, 0.01), `boca de la ranura en y=${Math.max(...ys)}, esperaba ${GRIP_GEO.archCrossY} (cruce con la curva)`);
+  assert(near(Math.min(...ys), GRIP_GEO.archCrossY, 0.01), `boca de la ranura en y=${Math.min(...ys)}, esperaba ${GRIP_GEO.archCrossY} (cruce con la curva)`);
+  assert(near(Math.max(...ys), GRIP_GEO.splitY, 0.01), `fondo de la ranura en y=${Math.max(...ys)}, esperaba ${GRIP_GEO.splitY}`);
 });
 
 check('agarradera: las dos ranuras (HANDLE-A y HANDLE-B) llegan exactamente al mismo plano de unión', () => {
-  const bottomOfSlot = (points) => {
-    const notchPts = points.filter((p) => near(Math.abs(p.x), GRIP_GEO.t / 2, 1e-6));
-    return Math.min(...notchPts.map((p) => p.y));
-  };
-  const splitA = bottomOfSlot(GRIP_A.points);
-  const splitB = bottomOfSlot(GRIP_B.points);
+  // HANDLE-A: el fondo de su ranura es el mínimo y entre sus puntos en
+  // x=±t/2 (su boca, en el fondo del vástago, es el máximo). HANDLE-B: al
+  // revés — su fondo es el MÁXIMO (su boca, más arriba en la curva del
+  // domo, es el mínimo). Cada lado deriva su propio valor de sus propios
+  // puntos, sin asumir de antemano que van a coincidir.
+  const notchYs = (points) => points
+    .filter((p) => near(Math.abs(p.x), GRIP_GEO.t / 2, 1e-6))
+    .map((p) => p.y);
+  const splitA = Math.min(...notchYs(GRIP_A.points));
+  const splitB = Math.max(...notchYs(GRIP_B.points));
   assert(near(splitA, splitB, 1e-6), `handle-a corta en y=${splitA}, handle-b en y=${splitB} — no quedan al ras`);
 });
 
