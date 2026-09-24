@@ -1,4 +1,5 @@
 import { EDGE_MARGIN } from './hinged-box.js';
+import { panelOutline } from '../core/panel.js';
 
 // Sin fórmula automática: es un tamaño de agarre a criterio, no se deriva
 // del grosor del material (igual que `handleWidthFor` en hinged-box.js,
@@ -60,6 +61,43 @@ export function crossHoleFeature({
     { x: cx - s, y: cy + a },
   ];
   return { id, layer, kind: 'hole', points };
+}
+
+// El agujero de TOP queda centrado en el panel completo (Lo × Wo).
+export function buildTopHole({
+  Lo, Wo, gs, t,
+}) {
+  return crossHoleFeature({
+    id: 'grip-hole', cx: Lo / 2, cy: Wo / 2, span: gs, thickness: t,
+  });
+}
+
+// TOP-INSERT: rectángulo liso del tamaño exacto del hueco interno
+// (spanX × spanY, sin holgura — decisión del spec), con su propio agujero
+// en cruz centrado en el panel, mismas medidas que el de TOP (así quedan
+// alineados una vez pegado por debajo, centrado).
+export function buildInsertPanel({
+  spanX, spanY, gs, t, material,
+}) {
+  const edges = {
+    top: { gender: 'plain' },
+    bottom: { gender: 'plain' },
+    left: { gender: 'plain' },
+    right: { gender: 'plain' },
+  };
+  const spec = { width: spanX, height: spanY, edges };
+  const hole = crossHoleFeature({
+    id: 'grip-hole', cx: spanX / 2, cy: spanY / 2, span: gs, thickness: t,
+  });
+  return {
+    id: 'top-insert',
+    label: 'TOP-INSERT',
+    width: spanX,
+    height: spanY,
+    edges,
+    points: panelOutline(spec, material),
+    features: [hole],
+  };
 }
 
 export { EDGE_MARGIN };

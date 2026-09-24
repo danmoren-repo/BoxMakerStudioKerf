@@ -28,6 +28,7 @@
     import { renderBox } from './js/render/svg-render.js';
     import {
       gripDiameterFor, gripStemSpanFor, gripGeometry, crossHoleFeature,
+      buildTopHole, buildInsertPanel,
     } from './js/boxes/lid-grip.js';
 
     const results = [];
@@ -1079,6 +1080,34 @@
       assertSimplePolygon(hole.points, 'crossHoleFeature');
       assert(insidePolygonGrip({ x: 50, y: 32.5 }, hole.points), 'el brazo de arriba debería ser material (dentro del polígono de la cruz)');
       assert(!insidePolygonGrip({ x: 44, y: 34 }, hole.points), 'la esquina fuera de los brazos debería ser vacío');
+    });
+
+    check('agarradera: buildTopHole queda centrado en Lo × Wo', () => {
+      const hole = buildTopHole({
+        Lo: 200, Wo: 150, gs: 16, t: 3,
+      });
+      const bb = boundingBox(hole.points);
+      const cx = (bb.minX + bb.maxX) / 2;
+      const cy = (bb.minY + bb.maxY) / 2;
+      assert(near(cx, 100), `centro X ${cx}, esperaba 100 (Lo/2)`);
+      assert(near(cy, 75), `centro Y ${cy}, esperaba 75 (Wo/2)`);
+    });
+
+    check('agarradera: buildInsertPanel mide spanX × spanY exacto, con su propio agujero centrado', () => {
+      const material = { thickness: 3, kerf: 0.16, tabWidth: 12 };
+      const insert = buildInsertPanel({
+        spanX: 74, spanY: 74, gs: 16, t: 3, material,
+      });
+      assert(insert.id === 'top-insert', 'id debería ser top-insert');
+      const bb = boundingBox(insert.points);
+      assert(near(bb.minX, 0) && near(bb.maxX, 74), `bbox X [${bb.minX},${bb.maxX}], esperaba [0,74]`);
+      assert(near(bb.minY, 0) && near(bb.maxY, 74), `bbox Y [${bb.minY},${bb.maxY}], esperaba [0,74]`);
+      assertSimplePolygon(insert.points, 'top-insert');
+      assert(insert.features.length === 1, 'debería tener exactamente un agujero');
+      const holeBb = boundingBox(insert.features[0].points);
+      const cx = (holeBb.minX + holeBb.maxX) / 2;
+      const cy = (holeBb.minY + holeBb.maxY) / 2;
+      assert(near(cx, 37) && near(cy, 37), `agujero centrado en (${cx},${cy}), esperaba (37,37)`);
     });
 
     const failed = results.filter((r) => !r.ok);
