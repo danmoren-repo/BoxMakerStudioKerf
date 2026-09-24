@@ -26,6 +26,9 @@
     import { buildSlidingBox } from './js/boxes/sliding-box.js';
     import { buildHingedBox } from './js/boxes/hinged-box.js';
     import { renderBox } from './js/render/svg-render.js';
+    import {
+      gripDiameterFor, gripStemSpanFor, gripGeometry, crossHoleFeature,
+    } from './js/boxes/lid-grip.js';
 
     const results = [];
     const TOL = 1e-6;
@@ -991,6 +994,91 @@
       assert(canonRecheck.errors.length === 0, `la caja canónica no debería dar error: ${canonRecheck.errors.join(' | ')}`);
       assert(canonRecheck.warnings.length === 0, `la caja canónica no debería avisar nada: ${canonRecheck.warnings.join(' | ')}`);
       assert(hinged.warnings.length === 0, `la caja canónica no debería avisar nada: ${hinged.warnings.join(' | ')}`);
+    });
+
+    // --- Tapa plana con agarradera: geometría base ---
+
+    // Verifica que un contorno sea un polígono simple: sin cruces
+    // transversales, sin aristas colineares que se solapen más allá de un
+    // punto, y sin aristas que rocen un vértice ajeno a mitad de camino.
+    // (Si `assertSimplePolygon` ya existe en este archivo por otra rama
+    // mergeada, borrar esta definición y usar la que ya está.)
+    function assertSimplePolygon(points, label) {
+      const n = points.length;
+      const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+      const collinear = (o, a, b) => Math.abs(cross(o, a, b)) < 1e-6;
+      const segInt = (p1, p2, p3, p4) => {
+        const d1 = cross(p3, p4, p1); const d2 = cross(p3, p4, p2);
+        const d3 = cross(p1, p2, p3); const d4 = cross(p1, p2, p4);
+        return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+      };
+      const onSegment = (p, a, b) => {
+        if (Math.abs(cross(a, b, p)) > 1e-6) return false;
+        return p.x >= Math.min(a.x, b.x) - 1e-7 && p.x <= Math.max(a.x, b.x) + 1e-7
+          && p.y >= Math.min(a.y, b.y) - 1e-7 && p.y <= Math.max(a.y, b.y) + 1e-7;
+      };
+      for (let i = 0; i < n; i++) {
+        const a1 = points[i]; const a2 = points[(i + 1) % n];
+        for (let j = 0; j < n; j++) {
+          const adjacent = j === (i + 1) % n || i === (j + 1) % n;
+          if (adjacent || i === j) continue;
+          const b1 = points[j]; const b2 = points[(j + 1) % n];
+          if (j > i) {
+            assert(!segInt(a1, a2, b1, b2), `${label}: cruce transversal entre las aristas ${i} y ${j}`);
+            if (collinear(a1, a2, b1) && collinear(a1, a2, b2)) {
+              const ox = Math.max(0, Math.min(Math.max(a1.x, a2.x), Math.max(b1.x, b2.x)) - Math.max(Math.min(a1.x, a2.x), Math.min(b1.x, b2.x)));
+              const oy = Math.max(0, Math.min(Math.max(a1.y, a2.y), Math.max(b1.y, b2.y)) - Math.max(Math.min(a1.y, a2.y), Math.min(b1.y, b2.y)));
+              assert(ox <= 1e-6 && oy <= 1e-6, `${label}: solape colinear entre las aristas ${i} y ${j}`);
+            }
+          }
+          if (j !== i && j !== (i + 1) % n) {
+            const v = points[j];
+            if (onSegment(v, a1, a2)) {
+              const atEnd = Math.hypot(v.x - a1.x, v.y - a1.y) < 1e-7 || Math.hypot(v.x - a2.x, v.y - a2.y) < 1e-7;
+              assert(atEnd, `${label}: la arista ${i} roza el vértice ${j} a mitad de camino`);
+            }
+          }
+        }
+      }
+    }
+
+    function insidePolygonGrip(pt, points) {
+      let inside = false;
+      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const xi = points[i].x; const yi = points[i].y; const xj = points[j].x; const yj = points[j].y;
+        if ((yi > pt.y) !== (yj > pt.y) && pt.x < ((xj - xi) * (pt.y - yi)) / (yj - yi) + xi) inside = !inside;
+      }
+      return inside;
+    }
+
+    check('agarradera: gripDiameterFor/gripStemSpanFor tienen los defaults del spec', () => {
+      assert(near(gripDiameterFor({}), 30), 'default de diámetro debería ser 30');
+      assert(near(gripStemSpanFor({}), 16), 'default de ancho de agujero debería ser 16');
+      assert(near(gripDiameterFor({ gripDiameter: 40 }), 40), 'debería respetar el valor explícito');
+      assert(near(gripStemSpanFor({ gripStemSpan: 12 }), 12), 'debería respetar el valor explícito');
+    });
+
+    check('agarradera: gripGeometry reproduce el ejemplo de referencia del spec (t=3, gd=30, gs=16)', () => {
+      const geo = gripGeometry({ t: 3, gd: 30, gs: 16 });
+      assert(near(geo.R, 15), `R=${geo.R}, esperaba 15`);
+      assert(near(geo.D, 6), `D=${geo.D}, esperaba 6`);
+      assert(near(geo.H, 21), `H=${geo.H}, esperaba 21`);
+      assert(near(geo.splitY, -4.5), `splitY=${geo.splitY}, esperaba -4.5`);
+      assert(near(geo.archCrossY, -14.9248, 0.001), `archCrossY=${geo.archCrossY}, esperaba ≈-14.9248`);
+    });
+
+    check('agarradera: crossHoleFeature arma una cruz simétrica de 12 puntos, simple, con el bbox esperado', () => {
+      const hole = crossHoleFeature({
+        id: 'test-hole', cx: 50, cy: 40, span: 16, thickness: 3,
+      });
+      assert(hole.kind === 'hole', 'kind debería ser hole');
+      assert(hole.points.length === 12, `${hole.points.length} puntos, esperaba 12`);
+      const bb = boundingBox(hole.points);
+      assert(near(bb.minX, 42) && near(bb.maxX, 58), `bbox X [${bb.minX},${bb.maxX}], esperaba [42,58]`);
+      assert(near(bb.minY, 32) && near(bb.maxY, 48), `bbox Y [${bb.minY},${bb.maxY}], esperaba [32,48]`);
+      assertSimplePolygon(hole.points, 'crossHoleFeature');
+      assert(insidePolygonGrip({ x: 50, y: 32.5 }, hole.points), 'el brazo de arriba debería ser material (dentro del polígono de la cruz)');
+      assert(!insidePolygonGrip({ x: 44, y: 34 }, hole.points), 'la esquina fuera de los brazos debería ser vacío');
     });
 
     const failed = results.filter((r) => !r.ok);
