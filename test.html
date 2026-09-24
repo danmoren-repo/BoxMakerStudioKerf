@@ -1202,6 +1202,57 @@
       assert(wide.length === 0, `no debería avisar nada, salió: ${wide.join(' | ')}`);
     });
 
+    // --- Tapa plana con agarradera: integración con buildBox() (simple-box.js) ---
+
+    const FLAT_GRIP = {
+      length: 80, width: 80, height: 80,
+      thickness: 3, kerf: 0.16, tabWidth: 12,
+      dimensionMode: 'outer', lidType: 'flat', grip: true,
+    };
+
+    check('agarradera: tapa plana SIN agarradera sigue dando exactamente 6 piezas (regresión)', () => {
+      const box = buildBox({ ...FLAT_GRIP, grip: false });
+      assert(box.errors.length === 0, box.errors.join(' | '));
+      assert(box.panels.length === 6, `${box.panels.length} piezas, esperaba 6`);
+      assert(box.grip === undefined, 'no debería traer campo grip cuando está desactivada');
+      const top = box.panels.find((p) => p.id === 'top');
+      assert(!top.features, 'TOP no debería tener features sin la agarradera');
+    });
+
+    check('agarradera: tapa plana CON agarradera da 9 piezas, sin errores, con el campo grip', () => {
+      const box = buildBox(FLAT_GRIP);
+      assert(box.errors.length === 0, box.errors.join(' | '));
+      assert(box.panels.length === 9, `${box.panels.length} piezas, esperaba 9`);
+      for (const id of ['bottom', 'front', 'left', 'top', 'back', 'right', 'top-insert', 'handle-a', 'handle-b']) {
+        assert(box.panels.find((p) => p.id === id), `falta la pieza ${id}`);
+      }
+      assert(near(box.grip.diameter, 30), `grip.diameter=${box.grip.diameter}, esperaba 30`);
+      assert(near(box.grip.stemSpan, 16), `grip.stemSpan=${box.grip.stemSpan}, esperaba 16`);
+      const top = box.panels.find((p) => p.id === 'top');
+      assert(top.features.length === 1, 'TOP debería tener exactamente un agujero');
+    });
+
+    check('agarradera: el contorno de las 9 piezas es siempre un polígono simple', () => {
+      const box = buildBox(FLAT_GRIP);
+      for (const p of box.panels) {
+        assertSimplePolygon(p.points, p.id);
+      }
+    });
+
+    check('agarradera: errores del box completo cuando la agarradera no entra en la caja', () => {
+      const tooSmall = buildBox({
+        ...FLAT_GRIP, length: 20, width: 20,
+      });
+      assert(tooSmall.errors.length > 0, 'debería dar error con una caja demasiado chica para la agarradera');
+      assert(tooSmall.panels.length === 0, 'no debería devolver piezas si hay error');
+    });
+
+    check('agarradera: otros tipos de tapa (finger/sliding/hinged) no se ven afectados por params.grip', () => {
+      const withStrayGrip = buildBox({ ...BASE, grip: true });
+      const without = buildBox(BASE);
+      assert(withStrayGrip.panels.length === without.panels.length, 'un grip:true en lidType finger no debería agregar piezas');
+    });
+
     const failed = results.filter((r) => !r.ok);
     document.getElementById('summary').textContent =
       failed.length === 0

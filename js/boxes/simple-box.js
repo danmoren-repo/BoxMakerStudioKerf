@@ -1,5 +1,10 @@
 import { panelOutline } from '../core/panel.js';
 import {
+  gripDiameterFor, gripStemSpanFor, gripGeometry,
+  buildTopHole, buildInsertPanel, buildHandlePanels,
+  validateGrip, gripWarnings,
+} from './lid-grip.js';
+import {
   autoTabWidthFromSpans,
   commonWarnings,
   jointSegments,
@@ -35,6 +40,9 @@ export function buildBox(params) {
   const { thickness: t, kerf, tabWidth, lidType = 'finger' } = params;
   const { Lo, Wo, Ho } = outerDimensions(params);
   const flatLid = lidType === 'flat';
+  const gripEnabled = flatLid && params.grip === true;
+  const gd = gripEnabled ? gripDiameterFor(params) : null;
+  const gs = gripEnabled ? gripStemSpanFor(params) : null;
   const wallHeight = wallHeightFor(Ho, t, lidType);
 
   const spanX = Lo - 2 * t; // Front/Back <-> Top/Bottom joints
@@ -46,6 +54,11 @@ export function buildBox(params) {
   const spanZ = wallHeight - 2 * t; //  Front/Back <-> Left/Right joints
 
   const errors = validate({ Lo, Wo, Ho, spanX, spanY, spanZ, t, kerf, tabWidth, flatLid });
+  if (gripEnabled && errors.length === 0) {
+    errors.push(...validateGrip({
+      t, gd, gs, spanX, spanY,
+    }));
+  }
   if (errors.length > 0) return { errors, warnings: [], panels: [] };
 
   const joints = {
@@ -107,11 +120,18 @@ export function buildBox(params) {
     },
   };
 
+  const topSpec = { id: 'top', label: 'TOP', ...(flatLid ? flatPanel : cap) };
+  if (gripEnabled) {
+    topSpec.features = [buildTopHole({
+      Lo, Wo, gs, t,
+    })];
+  }
+
   const specs = [
     { id: 'bottom', label: 'BOTTOM', ...cap },
     { id: 'front', label: 'FRONT', ...endWall },
     { id: 'left', label: 'LEFT', ...sideWall },
-    { id: 'top', label: 'TOP', ...(flatLid ? flatPanel : cap) },
+    topSpec,
     { id: 'back', label: 'BACK', ...endWall },
     { id: 'right', label: 'RIGHT', ...sideWall },
   ];
@@ -119,16 +139,29 @@ export function buildBox(params) {
   const material = { thickness: t, kerf, tabWidth };
   const panels = specs.map((spec) => ({ ...spec, points: panelOutline(spec, material) }));
 
+  if (gripEnabled) {
+    const geo = gripGeometry({ t, gd, gs });
+    panels.push(buildInsertPanel({
+      spanX, spanY, gs, t, material,
+    }));
+    const { handleA, handleB } = buildHandlePanels(geo);
+    panels.push(handleA, handleB);
+  }
+
   return {
     panels,
     joints,
     errors,
-    warnings: commonWarnings({
-      jointWidths: [joints.x.width, joints.y.width, joints.z.width],
-      t, kerf, tabWidth,
-    }),
+    warnings: [
+      ...commonWarnings({
+        jointWidths: [joints.x.width, joints.y.width, joints.z.width],
+        t, kerf, tabWidth,
+      }),
+      ...(gripEnabled ? gripWarnings({ gd, gs }) : []),
+    ],
     outer: { length: Lo, width: Wo, height: Ho },
     inner: { length: Lo - 2 * t, width: Wo - 2 * t, height: Ho - 2 * t },
+    ...(gripEnabled ? { grip: { diameter: gd, stemSpan: gs } } : {}),
   };
 }
 
