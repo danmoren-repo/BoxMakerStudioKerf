@@ -65,6 +65,10 @@
               <input type="radio" id="lid-hinged" name="lidType" value="hinged">
               <label for="lid-hinged">Con bisagra</label>
             </div>
+            <div class="radio-option">
+              <input type="radio" id="lid-hingedDouble" name="lidType" value="hingedDouble">
+              <label for="lid-hingedDouble">Con bisagra doble</label>
+            </div>
             <p class="help">
               "Con espigas": la tapa encaja dentro como el resto de las piezas.
               "Plana": un rectángulo liso que se apoya encima de las paredes, que se
@@ -78,6 +82,13 @@
               Con la casilla "Agarradera" (solo disponible con tapa
               "Plana"), se le agrega una perilla armada de dos piezas que
               atraviesa la tapa y un inserto pegado por debajo.
+              "Con bisagra doble": la tapa se parte en dos mitades iguales, cada una
+              con su propia bisagra cerca de su propio lateral, girando sobre un eje
+              de adelante hacia atrás — se abren como dos alas y se encuentran en el
+              medio. Las paredes frontal y trasera quedan a la altura completa (las
+              mitades encajan a ras, no apoyadas encima), y cada mitad lleva una
+              lengüeta que sobresale por el frente y el fondo a la vez: es el tirador
+              y también lo único que sostiene esa mitad cerrada.
             </p>
           </div>
 
@@ -120,8 +131,11 @@
                 <label for="pegSizeAuto">Automático (igual al grosor)</label>
               </div>
               <p class="help">
-                Cuadrado macizo que sale del canto lateral de la tapa, cerca de la
-                esquina trasera. A mano, se calibra cortando.
+                Cuadrado macizo que hace de eje de la bisagra. Con bisagra
+                simple sale del canto lateral de la tapa, cerca de la
+                esquina trasera; con bisagra doble sale del canto exterior
+                de cada mitad, hacia la pared frontal y trasera. A mano, se
+                calibra cortando.
               </p>
             </div>
 

@@ -25,6 +25,7 @@
     import { buildBox, autoTabWidth } from './js/boxes/simple-box.js';
     import { buildSlidingBox } from './js/boxes/sliding-box.js';
     import { buildHingedBox } from './js/boxes/hinged-box.js';
+    import { buildHingedDoubleBox } from './js/boxes/hinged-double-box.js';
     import { renderBox } from './js/render/svg-render.js';
     import {
       gripDiameterFor, gripStemSpanFor, gripGeometry, crossHoleFeature,
@@ -1001,13 +1002,21 @@
       assert(hinged.warnings.length === 0, `la caja canónica no debería avisar nada: ${hinged.warnings.join(' | ')}`);
     });
 
-    // --- Tapa plana con agarradera: geometría base ---
+    // --- Tapa con bisagra doble --------------------------------------------
+
+    const HINGED_DOUBLE = {
+      length: 80, width: 80, height: 80,
+      thickness: 3, kerf: 0.16, tabWidth: 12,
+      dimensionMode: 'outer', lidType: 'hingedDouble',
+    };
+    const hingedDouble = buildHingedDoubleBox(HINGED_DOUBLE);
+    const hdp = (id) => hingedDouble.panels.find((p) => p.id === id);
 
     // Verifica que un contorno sea un polígono simple: sin cruces
     // transversales, sin aristas colineares que se solapen más allá de un
-    // punto, y sin aristas que rocen un vértice ajeno a mitad de camino.
-    // (Si `assertSimplePolygon` ya existe en este archivo por otra rama
-    // mergeada, borrar esta definición y usar la que ya está.)
+    // punto, y sin aristas que rocen un vértice ajeno a mitad de camino —
+    // las tres categorías de defecto que se encontraron (y arreglaron) en
+    // el rediseño de la bisagra simple, en ese orden.
     function assertSimplePolygon(points, label) {
       const n = points.length;
       const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
@@ -1048,6 +1057,16 @@
     }
 
     function insidePolygonGrip(pt, points) {
+      let inside = false;
+      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const xi = points[i].x; const yi = points[i].y; const xj = points[j].x; const yj = points[j].y;
+        if ((yi > pt.y) !== (yj > pt.y) && pt.x < ((xj - xi) * (pt.y - yi)) / (yj - yi) + xi) inside = !inside;
+      }
+      return inside;
+    }
+
+    // Ray-casting par-impar: ¿el punto queda dentro del contorno?
+    function insidePolygon(pt, points) {
       let inside = false;
       for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
         const xi = points[i].x; const yi = points[i].y; const xj = points[j].x; const yj = points[j].y;
@@ -1494,6 +1513,242 @@
       assert(box.errors.length === 0, box.errors.join(' | '));
       assert(box.panels.length === 9, `${box.panels.length} piezas, esperaba 9 (6 + 1 + 2)`);
       for (const p of box.panels) assertSimplePolygon(p.points, `${p.id} (buildHingedBox con divisores)`);
+    });
+
+
+    check('bisagra doble: siete piezas y ningún error', () => {
+      assert(hingedDouble.errors.length === 0, hingedDouble.errors.join(' | '));
+      assert(hingedDouble.panels.length === 7, `${hingedDouble.panels.length} piezas, esperaba 7`);
+      for (const id of ['bottom', 'front', 'left', 'lid-left', 'lid-right', 'back', 'right']) {
+        assert(hdp(id), `falta la pieza ${id}`);
+      }
+    });
+
+    check('bisagra doble: las paredes quedan a la altura completa pedida, sin acortar', () => {
+      assert(near(hingedDouble.outer.height, 80), `alto exterior ${hingedDouble.outer.height}`);
+      // A diferencia de la bisagra simple, acá front/back NO se acortan: su
+      // alto (fuera de los postes) es Ho, no Ho − tl.
+      const bbFront = boundingBox(hdp('front').points);
+      assert(near(bbFront.maxY, 80), `frente: canto inferior en y=${bbFront.maxY}, esperaba 80 (Ho completo)`);
+    });
+
+    check('bisagra doble: cada mitad de la tapa mide (Lo−2t)/2 × (Wo−2t)', () => {
+      const expectedWidth = (80 - 6) / 2; // 37
+      for (const id of ['lid-left', 'lid-right']) {
+        const bb = boundingBox(hdp(id).points);
+        // El ancho del CUERPO (sin los bultos) es doorWidth; los bultos de
+        // espiga y lengüeta sobresalen por fuera de eso, así que el bbox
+        // completo mide más — se comprueba por separado más abajo.
+        assert(near(bb.width, expectedWidth, 0.01), `${id}: ancho de bbox ${bb.width}, esperaba ${expectedWidth} (el cuerpo llega exacto al bbox en X)`);
+      }
+    });
+
+    check('bisagra doble: cada pared frontal/trasera tiene dos agujeros de bisagra, uno cerca de cada extremo', () => {
+      const rh = hingedDouble.hinge.holeDiameter / 2;
+      const expectedCy = 3 / 2; // t/2, bajo el canto superior de la pared
+      const leftCx = 3 + 2 + rh; // t + em + rh
+      const rightCx = 80 - 3 - 2 - rh;
+      for (const id of ['front', 'back']) {
+        const p = hdp(id);
+        assert(p.features.length === 2, `${id}: ${p.features.length} agujeros, esperaba 2`);
+        const [holeA, holeB] = p.features;
+        // La espiga barre un círculo del tamaño de su DIAGONAL al girar
+        // (√(ps²+tl²)), no de su lado (ps) — el agujero real es esa
+        // diagonal más la holgura hc; hingedDouble.hinge expone
+        // holeDiameter (diagonal+hc) y clearance (hc) por separado, así
+        // que restando se obtiene la diagonal sin duplicar la fórmula acá.
+        const diagonal = hingedDouble.hinge.holeDiameter - hingedDouble.hinge.clearance;
+        const centers = [holeA, holeB].map((f) => {
+          const bb = boundingBox(f.points);
+          return {
+            x: (bb.minX + bb.maxX) / 2, y: (bb.minY + bb.maxY) / 2, d: bb.width, layer: f.layer,
+          };
+        }).sort((a, b) => a.x - b.x);
+        assert(near(centers[0].x, leftCx, 0.05), `${id}: agujero izquierdo en x=${centers[0].x}, esperaba ${leftCx}`);
+        assert(near(centers[1].x, rightCx, 0.05), `${id}: agujero derecho en x=${centers[1].x}, esperaba ${rightCx}`);
+        for (const c of centers) {
+          assert(near(c.y, expectedCy, 0.05), `${id}: agujero centrado en y=${c.y}, esperaba ${expectedCy} (t/2)`);
+          assert(c.d > diagonal, `${id}: agujero (${c.d}) no es más grande que la diagonal de la espiga (${diagonal})`);
+          assert(c.layer === 'cut', `${id}: capa del agujero, esperaba cut`);
+        }
+      }
+    });
+
+    check('bisagra doble: cada poste sobresale por encima del canto superior de la pared, sólo cerca de sus dos extremos', () => {
+      const expectedPostTop = -hingedDouble.hinge.postHeight;
+      for (const id of ['front', 'back']) {
+        const p = hdp(id);
+        const bb = boundingBox(p.points);
+        assert(near(bb.minY, expectedPostTop, 0.01), `${id}: el contorno llega a y=${bb.minY}, esperaba ${expectedPostTop} (el poste no se dibujó a su altura)`);
+        // El canto "normal" (fuera de los postes y la muesca) sigue en y=0:
+        // el esqueleto fijo de buildFrontBackWall pone ahí exactamente 8
+        // vértices ({0,0}, los 4 pies de los dos postes, los 2 pies de la
+        // muesca, {Lo,0}) — un conteo exacto, no un mínimo laxo, porque ese
+        // esqueleto no cambia con los parámetros.
+        const onNormalLevel = p.points.filter((q) => near(q.y, 0, 1e-6));
+        assert(onNormalLevel.length === 8, `${id}: ${onNormalLevel.length} vértices en el nivel normal (y=0), esperaba 8`);
+      }
+    });
+
+    check('bisagra doble: cada mitad de la tapa lleva su espiga cerca del canto exterior, no del interior', () => {
+      // El bbox completo de la mitad NO sirve para ubicar la espiga: la
+      // lengüeta (hd=8) sobresale más que la espiga (ps=3), así que
+      // bbox.minY es de la lengüeta, no de la espiga. Se filtra por X,
+      // cerca del canto exterior (x≈0 en lid-left, x≈doorWidth en
+      // lid-right), lejos de donde vive la lengüeta.
+      const ps = hingedDouble.hinge.pegSize;
+      const doorWidth = (80 - 6) / 2;
+      const nearOuterEdge = (points, outerX) => points.filter((p) => Math.abs(p.x - outerX) < 10);
+      const leftPegPts = nearOuterEdge(hdp('lid-left').points, 0);
+      const rightPegPts = nearOuterEdge(hdp('lid-right').points, doorWidth);
+      const minY = (pts) => Math.min(...pts.map((p) => p.y));
+      assert(near(minY(leftPegPts), -ps, 0.01), `lid-left: minY cerca del canto exterior=${minY(leftPegPts)}, esperaba ${-ps} (la espiga)`);
+      assert(near(minY(rightPegPts), -ps, 0.01), `lid-right: minY cerca del canto exterior=${minY(rightPegPts)}, esperaba ${-ps}`);
+    });
+
+    check('bisagra doble: la espiga de cada mitad queda centrada sobre el agujero REAL de la pared, en X absoluto', () => {
+      // A diferencia del check anterior (que solo mira el dibujo de cada
+      // mitad por separado), acá se compara contra los agujeros de
+      // features[] que YA dibujó buildFrontBackWall — si algún día las dos
+      // fórmulas (la de la espiga en buildDoor y la del agujero en
+      // buildFrontBackWall) se desalinean, esto lo detecta; repetir la
+      // misma fórmula en ambos lados del assert no lo haría.
+      const ps = hingedDouble.hinge.pegSize;
+      const t = HINGED_DOUBLE.thickness;
+      const doorWidth = (80 - 6) / 2;
+      const pegCenterLocalX = (id) => {
+        const xs = hdp(id).points.filter((p) => near(p.y, -ps, 0.5)).map((p) => p.x);
+        assert(xs.length === 2, `${id}: ${xs.length} vértices en la punta de la espiga, esperaba 2`);
+        return (Math.min(...xs) + Math.max(...xs)) / 2;
+      };
+      const holeCentersX = (wallId) => hdp(wallId).features.map((f) => {
+        const bb = boundingBox(f.points);
+        return (bb.minX + bb.maxX) / 2;
+      }).sort((a, b) => a - b);
+
+      // lid-left ocupa el rango absoluto [t, t+doorWidth]; lid-right ocupa
+      // [t+doorWidth, t+2·doorWidth] — la segunda mitad no arranca en t,
+      // arranca donde termina la primera.
+      const leftPegAbsX = t + pegCenterLocalX('lid-left');
+      const rightPegAbsX = t + doorWidth + pegCenterLocalX('lid-right');
+      for (const wallId of ['front', 'back']) {
+        const [leftHoleX, rightHoleX] = holeCentersX(wallId);
+        assert(near(leftPegAbsX, leftHoleX, 0.05), `lid-left espiga (abs x=${leftPegAbsX}) vs agujero izquierdo de ${wallId} (x=${leftHoleX})`);
+        assert(near(rightPegAbsX, rightHoleX, 0.05), `lid-right espiga (abs x=${rightPegAbsX}) vs agujero derecho de ${wallId} (x=${rightHoleX})`);
+      }
+    });
+
+    check('bisagra doble: cada mitad lleva su lengüeta en el canto interior, sobresaliendo por el frente y el fondo a la vez', () => {
+      const hd = HINGED_DOUBLE.thickness + 5; // handleDepth por defecto
+      const ps = hingedDouble.hinge.pegSize;
+      const bbLeft = boundingBox(hdp('lid-left').points);
+      const bbRight = boundingBox(hdp('lid-right').points);
+      const spanY = 74;
+      const expectedMinY = -Math.max(hd, ps); // el mayor entre lengüeta y espiga, del lado del frente
+      const expectedMaxY = spanY + hd; // la lengüeta sobresale por el fondo en ambas mitades
+      assert(near(bbLeft.minY, expectedMinY, 0.01), `lid-left: minY=${bbLeft.minY}, esperaba ${expectedMinY} (no sobresale lo esperado por el frente)`);
+      assert(near(bbLeft.maxY, expectedMaxY, 0.01), `lid-left: maxY=${bbLeft.maxY}, esperaba ${expectedMaxY} (la lengüeta sobresale por el fondo)`);
+      assert(near(bbRight.minY, expectedMinY, 0.01), `lid-right: minY=${bbRight.minY}, esperaba ${expectedMinY}`);
+      assert(near(bbRight.maxY, expectedMaxY, 0.01), `lid-right: maxY=${bbRight.maxY}, esperaba ${expectedMaxY}`);
+    });
+
+    check('bisagra doble: las paredes frontal y trasera tienen una muesca centrada en Lo/2, de ancho hw', () => {
+      for (const id of ['front', 'back']) {
+        const p = hdp(id);
+        // Acotado también en X, cerca del centro: sin eso, el filtro de Y
+        // solo agarra de paso el primer diente de la junta del canto
+        // derecho/izquierdo (spanZ = 74 mm completos acá, sin acortar, así
+        // que el primer diente puede caer dentro del mismo rango de Y).
+        const notchPoints = p.points.filter((q) => q.y > 0.01 && q.y < 20 && q.x > 20 && q.x < 60);
+        assert(notchPoints.length > 0, `${id}: no se encontró ninguna muesca`);
+        const xs = notchPoints.map((q) => q.x);
+        const center = (Math.min(...xs) + Math.max(...xs)) / 2;
+        const width = Math.max(...xs) - Math.min(...xs);
+        assert(near(center, 40, 0.5), `${id}: muesca centrada en x=${center}, esperaba 40 (Lo/2)`);
+        assert(near(width, 20, 0.5), `${id}: muesca de ${width} mm, esperaba 20 (handleWidth)`);
+      }
+    });
+
+    check('bisagra doble: el agujero de bisagra lleva compensación de kerf', () => {
+      const expectedDrawn = hingedDouble.hinge.holeDiameter + HINGED_DOUBLE.kerf;
+      const bb = boundingBox(hdp('front').features[0].points);
+      assert(near(bb.width, expectedDrawn, 0.02), `agujero dibujado ${bb.width}, esperaba ${expectedDrawn}`);
+    });
+
+    check('bisagra doble: el contorno de cada pieza es un polígono simple (sin cruces, solapes, ni aristas que rocen un vértice ajeno)', () => {
+      for (const p of hingedDouble.panels) {
+        assertSimplePolygon(p.points, p.id);
+      }
+    });
+
+    check('bisagra doble: los postes son material, la muesca es vacío, y las dos mitades de la tapa clasifican bien (ray-casting)', () => {
+      const front = hdp('front');
+      const rh = hingedDouble.hinge.holeDiameter / 2;
+      const leftPostCx = 3 + 2 + rh;
+      const rightPostCx = 80 - 3 - 2 - rh;
+      assert(insidePolygon({ x: leftPostCx, y: -hingedDouble.hinge.postHeight / 2 }, front.points), 'poste izquierdo debería ser material');
+      assert(insidePolygon({ x: rightPostCx, y: -hingedDouble.hinge.postHeight / 2 }, front.points), 'poste derecho debería ser material');
+      assert(!insidePolygon({ x: 40, y: 3 }, front.points), 'la muesca del medio debería ser vacío');
+      assert(insidePolygon({ x: 40, y: 40 }, front.points), 'el cuerpo de la pared debería ser material');
+
+      const lidLeft = hdp('lid-left');
+      const doorWidth = (80 - 6) / 2;
+      assert(insidePolygon({ x: doorWidth / 2, y: 37 }, lidLeft.points), 'cuerpo de lid-left debería ser material');
+    });
+
+    check('bisagra doble: errores que bloquean la generación', () => {
+      const cases = [
+        ['grosor de tapa inválido', { lidThickness: -1 }, 'tapa'],
+        ['tamaño de espiga inválido', { pegSize: 0 }, 'espiga'],
+        ['holgura de agujero negativa', { hingeClearance: -1 }, 'holgura'],
+        ['manija sin ancho', { handleWidth: 0 }, 'manija'],
+        ['profundidad de manija negativa', { handleDepth: -5 }, 'profundidad'],
+        // length: 15 con la manija por defecto (20 mm) ya dispara el error
+        // previo de "manija demasiado ancha para el frente" (hw+2em>=Lo)
+        // antes de siquiera llegar al chequeo nuevo — length: 30 en cambio
+        // pasa ese chequeo (20+4 < 30) y sí llega al chequeo nuevo de
+        // espiga-vs-lengüeta dentro de cada mitad; 'pisarían' es una
+        // palabra que solo aparece en el mensaje del chequeo nuevo.
+        ['caja demasiado corta para que la espiga y la lengüeta convivan en cada mitad', { length: 30 }, 'pisarían'],
+        // Y este caso dispara el otro chequeo nuevo (postes vs. muesca) sin
+        // tocar el anterior: con manija muy ancha en la caja canónica, los
+        // postes invaden el rango de la muesca antes de que la propia
+        // mitad de la tapa se quede sin sitio.
+        ['postes de bisagra invadidos por la muesca de la manija', { handleWidth: 58 }, 'invaden'],
+      ];
+      for (const [name, override, fragment] of cases) {
+        const r = buildHingedDoubleBox({ ...HINGED_DOUBLE, ...override });
+        assert(r.errors.length > 0, `${name}: no produjo error`);
+        assert(r.panels.length === 0, `${name}: devolvió piezas pese al error`);
+        assert(r.errors.some((e) => e.toLowerCase().includes(fragment)),
+          `${name}: esperaba un error con "${fragment}", salió: ${r.errors.join(' | ')}`);
+      }
+    });
+
+    check('bisagra doble: avisos que no bloquean', () => {
+      const cases = [
+        ['holgura muy chica', HINGED_DOUBLE, { hingeClearance: 0.05 }, 'dura'],
+        ['holgura muy grande', HINGED_DOUBLE, { hingeClearance: 4 }, 'floja'],
+        // En la caja canónica (material de 3 mm) el error nuevo de "postes
+        // invaden la muesca" (C2) siempre dispara ANTES que este aviso: la
+        // franja de "manija cerca del borde" cae dentro de la región ya
+        // bloqueada por ese error (con material de 3 mm el margen entre
+        // ambos umbrales es de ~20 mm, más ancho que la franja de 10 mm
+        // del aviso). Con material bien fino (1 mm) esa franja SÍ queda
+        // libre — por eso este caso usa su propia base, no HINGED_DOUBLE.
+        ['manija cerca del borde del frente (material fino)', {
+          length: 80, width: 80, height: 80, thickness: 1, kerf: 0.1, tabWidth: 6,
+          dimensionMode: 'outer', lidType: 'hingedDouble',
+          pegSize: 1, hingeClearance: 0.5, handleDepth: 6,
+        }, { handleWidth: 66 }, 'cerca'],
+      ];
+      for (const [name, base, override, fragment] of cases) {
+        const r = buildHingedDoubleBox({ ...base, ...override });
+        assert(r.errors.length === 0, `${name}: debía generar, pero dio ${r.errors.join(' | ')}`);
+        assert(r.warnings.some((w) => w.toLowerCase().includes(fragment)),
+          `${name}: esperaba un aviso con "${fragment}", salió: ${r.warnings.join(' | ') || '(ninguno)'}`);
+      }
+      assert(hingedDouble.warnings.length === 0, `la caja canónica no debería avisar nada: ${hingedDouble.warnings.join(' | ')}`);
     });
 
     const failed = results.filter((r) => !r.ok);

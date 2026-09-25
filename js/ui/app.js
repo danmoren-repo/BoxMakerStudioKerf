@@ -1,6 +1,7 @@
 import { buildBox, autoTabWidth as simpleTabWidth } from '../boxes/simple-box.js';
 import { buildSlidingBox, autoTabWidth as slidingTabWidth } from '../boxes/sliding-box.js';
 import { buildHingedBox, autoTabWidth as hingedTabWidth } from '../boxes/hinged-box.js';
+import { buildHingedDoubleBox, autoTabWidth as hingedDoubleTabWidth } from '../boxes/hinged-double-box.js';
 import { renderBox } from '../render/svg-render.js';
 import { downloadSvg } from '../render/export.js';
 import { round } from '../core/geometry.js';
@@ -39,6 +40,7 @@ const heightDividersEl = document.getElementById('heightDividers');
 const BUILDERS = {
   sliding: { build: buildSlidingBox, autoTab: slidingTabWidth },
   hinged: { build: buildHingedBox, autoTab: hingedTabWidth },
+  hingedDouble: { build: buildHingedDoubleBox, autoTab: hingedDoubleTabWidth },
   default: { build: buildBox, autoTab: simpleTabWidth },
 };
 const builderFor = (lidType) => BUILDERS[lidType] ?? BUILDERS.default;
@@ -80,7 +82,10 @@ function readParams() {
     params.slideClearance = number('slideClearance');
   }
 
-  const hinged = lidType === 'hinged';
+  // La bisagra simple y la doble comparten exactamente los mismos campos
+  // (tamaño de espiga, holgura, ancho/profundidad de manija) y las mismas
+  // fórmulas por defecto — mismo bloque de campos para las dos.
+  const hinged = lidType === 'hinged' || lidType === 'hingedDouble';
   hingedFields.hidden = !hinged;
 
   if (hinged) {
@@ -183,7 +188,9 @@ downloadBtn.addEventListener('click', () => {
   if (!currentSvg || !currentBox) return;
   const { length, width, height } = currentBox.outer;
   const thickness = document.getElementById('thickness').value;
-  const SUFFIXES = { flat: '-tapaplana', sliding: '-deslizante', hinged: '-bisagra' };
+  const SUFFIXES = {
+    flat: '-tapaplana', sliding: '-deslizante', hinged: '-bisagra', hingedDouble: '-bisagra-doble',
+  };
   const lid = SUFFIXES[form.elements.lidType.value] ?? '';
   downloadSvg(currentSvg, `boxmaker-${round(length, 1)}x${round(width, 1)}x${round(height, 1)}-t${thickness}${lid}.svg`);
 });
