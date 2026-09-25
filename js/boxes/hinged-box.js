@@ -40,6 +40,55 @@ export function handleCornerRadiusFor({ handleCornerRadius }) {
   return Number.isFinite(handleCornerRadius) ? handleCornerRadius : 2;
 }
 
+// Los dos vértices redondeados de la PUNTA de un bulto rectangular que
+// sobresale desde `baseY` hasta `tipY` — hacia arriba (tipY < baseY, la
+// manija de la bisagra simple) o hacia abajo (tipY > baseY, cada mitad de
+// la lengüeta de la bisagra doble, que sobresale a la vez por el frente y
+// por el fondo). Sólo tiene sentido redondear la punta: la base, donde el
+// bulto se funde con el canto recto, no es una esquina — ahí el contorno
+// sigue derecho, igual que en cualquier otro punto de ese canto.
+//
+// El plan original (`roundedRectPoints`, un rectángulo de 4 esquinas
+// redondeadas y sentido horario) traza un rectángulo CERRADO completo —
+// incluida la arista que falta entre el último punto y el primero,
+// implícita al usarlo como polígono por sí solo. Empalmar ese rectángulo
+// entero entre la base y la base, como decía el plan, no funciona: mete un
+// bucle cerrado propio en medio del contorno de la tapa, con una costura
+// cerca de la base (la arista entre las dos esquinas "de abajo" del
+// rectángulo, que conecta un lado con el otro cruzando por dentro del
+// propio bulto) que efectivamente se cruza con el resto de la figura.
+// Verificado con un script de cruces de segmentos (mismo tipo usado en el
+// historial de este archivo para verificar contornos armados a mano): con
+// las 4 esquinas, 1 cruce transversal y 1 vértice apoyado sobre una arista
+// ajena, los dos exactamente en esa costura de la base. Con sólo las 2
+// esquinas de la punta (esta versión), 0 y 0.
+//
+// Devuelve los puntos en el mismo sentido en que se recorren de `x` a
+// `x + width` (izquierda a derecha); si el contorno que la usa camina esa
+// punta al revés (de `x + width` a `x`), el llamador debe invertir el
+// arreglo con `.reverse()` — invertir el orden de los puntos conserva la
+// forma pero camina la misma curva en sentido contrario, que es
+// exactamente lo que hace falta ahí.
+export function roundedTabTip({
+  x, width, baseY, tipY, radius, steps = 6,
+}) {
+  const up = tipY < baseY;
+  const cy = up ? tipY + radius : tipY - radius;
+  const [a1From, a1To, a2From, a2To] = up ? [180, 270, 270, 360] : [180, 90, 90, 0];
+  const arc = (cx, fromDeg, toDeg) => {
+    const pts = [];
+    for (let i = 0; i <= steps; i += 1) {
+      const a = ((fromDeg + (toDeg - fromDeg) * (i / steps)) * Math.PI) / 180;
+      pts.push({ x: cx + radius * Math.cos(a), y: cy + radius * Math.sin(a) });
+    }
+    return pts;
+  };
+  return [
+    ...arc(x + radius, a1From, a1To),
+    ...arc(x + width - radius, a2From, a2To),
+  ];
+}
+
 // Ho es la distancia de la base a la cara superior de la tapa cerrada, igual
 // que en las otras tapas. Las cuatro paredes quedan a Ho − tl, como la tapa
 // plana: la tapa se apoya encima y queda a ras.
@@ -217,44 +266,10 @@ export function buildHingedBox(params) {
       : [{ x: edgeX, y: near }, { x: outX, y: near }, { x: outX, y: far }, { x: edgeX, y: far }];
   };
 
-  // La manija es un bulto que sale del canto delantero de la tapa. Sólo
-  // tiene sentido redondear las dos esquinas de la PUNTA (las más alejadas
-  // del canto) — la base, donde se funde con el canto, no es una esquina:
-  // ahí el contorno sigue derecho, igual que en cualquier otro punto del
-  // canto delantero.
-  //
-  // El plan original (`roundedRectPoints`, un rectángulo de 4 esquinas
-  // redondeadas y sentido horario) traza un rectángulo CERRADO completo —
-  // incluida la arista que falta entre el último punto y el primero,
-  // implícita al usarlo como polígono por sí solo. Empalmar ese rectángulo
-  // entero entre (handleStart, 0) y (handleStart + hw, 0), como decía el
-  // plan, no funciona: mete un bucle cerrado propio en medio del contorno
-  // de la tapa, con una costura cerca de la base (la arista entre las dos
-  // esquinas "de abajo" del rectángulo, que conecta un lado con el otro
-  // cruzando por dentro de la propia manija) que efectivamente se cruza con
-  // el resto de la figura. Verificado con un script de cruces de segmentos
-  // (mismo tipo usado en el historial de este archivo para verificar
-  // contornos armados a mano): con las 4 esquinas, 1 cruce transversal y
-  // 1 vértice apoyado sobre una arista ajena, los dos
-  // exactamente en esa costura de la base. Con sólo las 2 esquinas de la
-  // punta (esta versión), 0 y 0.
-  const handleCapPoints = (x, width, tipY, radius, steps = 6) => {
-    const arc = (cx, cy, fromDeg, toDeg) => {
-      const pts = [];
-      for (let i = 0; i <= steps; i++) {
-        const a = ((fromDeg + (toDeg - fromDeg) * (i / steps)) * Math.PI) / 180;
-        pts.push({ x: cx + radius * Math.cos(a), y: cy + radius * Math.sin(a) });
-      }
-      return pts;
-    };
-    return [
-      ...arc(x + radius, tipY + radius, 180, 270),
-      ...arc(x + width - radius, tipY + radius, 270, 360),
-    ];
-  };
-
   const lidWithPegs = () => {
-    const handle = handleCapPoints(handleStart, hw, -hd, hr);
+    const handle = roundedTabTip({
+      x: handleStart, width: hw, baseY: 0, tipY: -hd, radius: hr,
+    });
     // Rectángulo Lo × Wo en sentido horario: manija injertada en el canto
     // delantero (y = 0), espiga derecha injertada en el canto derecho
     // (x = Lo, subiendo), canto trasero (y = Wo) intacto, espiga izquierda

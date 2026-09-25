@@ -14,6 +14,8 @@ import {
   hingeClearanceFor,
   handleWidthFor,
   handleDepthFor,
+  handleCornerRadiusFor,
+  roundedTabTip,
   EDGE_MARGIN,
 } from './hinged-box.js';
 
@@ -57,6 +59,13 @@ export function buildHingedDoubleBox(params) {
   const { kerf, tabWidth } = params;
   const hw = handleWidthFor(params);
   const hd = handleDepthFor(params);
+  // La punta de la lengüeta de cada mitad mide hw/2 de ancho (no hw: el
+  // ancho total de la muesca se reparte entre las dos mitades) — el radio
+  // por defecto (2 mm) ya entra de sobra ahí con los valores por defecto,
+  // pero se acota igual por si alguien pone una manija angosta o poco
+  // profunda a mano: sin esto, un radio más grande que la mitad de la
+  // punta cruza los dos arcos entre sí y rompe el contorno.
+  const htr = Math.min(handleCornerRadiusFor(params), hw / 4, hd / 2);
   const {
     Lo, Wo, Ho, t, tl, ps, hc, dh, rh, wallHeight, postHeight, postWidth,
   } = hingedDoubleHeights(params);
@@ -192,26 +201,35 @@ export function buildHingedDoubleBox(params) {
     // El extremo de la lengüeta que NO llega al propio canto de la mitad
     // (el otro extremo SÍ llega, a x=0 o x=doorWidth exactos).
     const tongueInner = pegNear0 ? doorWidth - tongueHalfWidth : tongueHalfWidth;
+    // La punta de la lengüeta sale a la vez por el frente (baseY=0) y por
+    // el fondo (baseY=spanY) de la mitad — dos bultos redondeados, uno por
+    // extremo. El de abajo se camina de derecha a izquierda en las dos
+    // ramas (al revés que el de arriba), así que sus puntos van invertidos
+    // (ver el comentario de `roundedTabTip` sobre el sentido del recorrido).
+    const tongueX = pegNear0 ? tongueInner : 0;
+    const frontTip = roundedTabTip({
+      x: tongueX, width: tongueHalfWidth, baseY: 0, tipY: -hd, radius: htr,
+    });
+    const backTip = roundedTabTip({
+      x: tongueX, width: tongueHalfWidth, baseY: spanY, tipY: spanY + hd, radius: htr,
+    }).reverse();
 
     const points = pegNear0
       ? [
         { x: 0, y: 0 },
         { x: pegStart, y: 0 }, { x: pegStart, y: -ps }, { x: pegEnd, y: -ps }, { x: pegEnd, y: 0 },
-        { x: tongueInner, y: 0 }, { x: tongueInner, y: -hd }, { x: doorWidth, y: -hd },
-        { x: doorWidth, y: spanY + hd },
-        { x: tongueInner, y: spanY + hd }, { x: tongueInner, y: spanY },
+        { x: tongueInner, y: 0 }, ...frontTip,
+        ...backTip, { x: tongueInner, y: spanY },
         { x: pegEnd, y: spanY }, { x: pegEnd, y: spanY + ps }, { x: pegStart, y: spanY + ps }, { x: pegStart, y: spanY },
         { x: 0, y: spanY },
       ]
       : [
-        { x: 0, y: -hd },
-        { x: tongueInner, y: -hd }, { x: tongueInner, y: 0 },
+        ...frontTip, { x: tongueInner, y: 0 },
         { x: pegStart, y: 0 }, { x: pegStart, y: -ps }, { x: pegEnd, y: -ps }, { x: pegEnd, y: 0 },
         { x: doorWidth, y: 0 },
         { x: doorWidth, y: spanY },
         { x: pegEnd, y: spanY }, { x: pegEnd, y: spanY + ps }, { x: pegStart, y: spanY + ps }, { x: pegStart, y: spanY },
-        { x: tongueInner, y: spanY }, { x: tongueInner, y: spanY + hd },
-        { x: 0, y: spanY + hd },
+        { x: tongueInner, y: spanY }, ...backTip,
       ];
 
     return {
