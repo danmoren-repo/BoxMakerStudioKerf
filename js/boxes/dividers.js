@@ -63,5 +63,6 @@ export function buildHeightDividerPoints({
     points.push({ x: p - half, y: height - notchDepth });
     points.push({ x: p - half, y: height });
   }
+  points.push({ x: 0, y: height });
   return points;
 }

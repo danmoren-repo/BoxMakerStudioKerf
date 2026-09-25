@@ -1314,12 +1314,23 @@
       const pts = buildHeightDividerPoints({
         width: 144, height: 44, notchDepth: 22, notchWidth: 2.9, positions,
       });
-      assert(pts.length === 15, `${pts.length} puntos, esperaba 15 (3 esquinas + 3 muescas x 4)`);
+      assert(pts.length === 16, `${pts.length} puntos, esperaba 16 (3 esquinas + 3 muescas x 4 + 1 esquina final)`);
       const bb = boundingBox(pts);
       assert(near(bb.width, 144) && near(bb.height, 44), 'las muescas no deberían agrandar el bbox');
       assertSimplePolygon(pts, 'buildHeightDividerPoints con 3 muescas');
       const notchPoints = pts.filter((p) => near(p.x, 72 + 1.45) || near(p.x, 72 - 1.45));
       assert(notchPoints.some((p) => near(p.y, 22)), 'la muesca en u=72 debería tener un punto en v=22 (notchDepth)');
+      assert(pts.some((p) => near(p.x, 0) && near(p.y, 44)), 'debería incluir la esquina inferior izquierda (0, height)');
+    });
+
+    check('divisores: buildHeightDividerPoints sin posiciones da un rectángulo liso de 4 puntos', () => {
+      const pts = buildHeightDividerPoints({
+        width: 144, height: 44, notchDepth: 22, notchWidth: 2.9, positions: [],
+      });
+      assert(pts.length === 4, `${pts.length} puntos, esperaba 4`);
+      const bb = boundingBox(pts);
+      assert(near(bb.width, 144) && near(bb.height, 44), `bbox ${bb.width}x${bb.height}, esperaba 144x44`);
+      assertSimplePolygon(pts, 'buildHeightDividerPoints sin muescas');
     });
 
     const failed = results.filter((r) => !r.ok);
