@@ -1472,6 +1472,21 @@
       for (const p of box.panels) assertSimplePolygon(p.points, `${p.id} (buildSlidingBox con divisores)`);
     });
 
+    // --- Divisores internos: integración con buildHingedBox() (hinged-box.js) ---
+
+    check('divisores + buildHingedBox: sin divisores, sigue dando exactamente 6 piezas (regresión)', () => {
+      const box = buildHingedBox(HINGED);
+      assert(box.errors.length === 0, box.errors.join(' | '));
+      assert(box.panels.length === 6, `${box.panels.length} piezas, esperaba 6`);
+    });
+
+    check('divisores + buildHingedBox: con divisores de largo y de alto, cruzan y dan las piezas de las dos', () => {
+      const box = buildHingedBox({ ...HINGED, lengthDividers: 1, heightDividers: 2 });
+      assert(box.errors.length === 0, box.errors.join(' | '));
+      assert(box.panels.length === 9, `${box.panels.length} piezas, esperaba 9 (6 + 1 + 2)`);
+      for (const p of box.panels) assertSimplePolygon(p.points, `${p.id} (buildHingedBox con divisores)`);
+    });
+
     const failed = results.filter((r) => !r.ok);
     document.getElementById('summary').textContent =
       failed.length === 0
