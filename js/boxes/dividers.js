@@ -126,3 +126,38 @@ export function dividerWarnings({
   }
   return warnings;
 }
+
+export function buildDividerPanels({
+  spanX, spanY, dividerHeight, t, kerf, lengthDividers, heightDividers,
+}) {
+  const Nc = resolveCount(lengthDividers);
+  const Ns = resolveCount(heightDividers);
+  if (Nc === 0 && Ns === 0) return [];
+
+  const notchDepth = spanY / 2;
+  const notchWidth = t - kerf; // ranura compensada de kerf, como una arista hembra
+
+  const lengthPoints = buildLengthDividerPoints({
+    width: spanY,
+    height: dividerHeight,
+    notchDepth,
+    notchWidth,
+    positions: evenPositions(dividerHeight, Ns),
+  });
+  const heightPoints = buildHeightDividerPoints({
+    width: spanX,
+    height: spanY,
+    notchDepth,
+    notchWidth,
+    positions: evenPositions(spanX, Nc),
+  });
+
+  const panels = [];
+  for (let i = 1; i <= Nc; i += 1) {
+    panels.push({ id: `divider-l${i}`, label: `DIVIDER-L${i}`, points: lengthPoints });
+  }
+  for (let j = 1; j <= Ns; j += 1) {
+    panels.push({ id: `divider-h${j}`, label: `DIVIDER-H${j}`, points: heightPoints });
+  }
+  return panels;
+}
