@@ -30,6 +30,8 @@ const gripEl = document.getElementById('grip');
 const gripFields = document.getElementById('gripFields');
 const gripDiameterEl = document.getElementById('gripDiameter');
 const gripStemSpanEl = document.getElementById('gripStemSpan');
+const lengthDividersEl = document.getElementById('lengthDividers');
+const heightDividersEl = document.getElementById('heightDividers');
 
 // Cada tipo de tapa trae su generador y su cálculo de espiga automática: el
 // tramo de junta más corto no es el mismo en una caja cerrada que en una con
@@ -58,6 +60,8 @@ function readParams() {
     dimensionMode: form.elements.dimensionMode.value,
     lidType,
     tabWidth: number('tabWidth'),
+    lengthDividers: number('lengthDividers'),
+    heightDividers: number('heightDividers'),
   };
 
   slidingFields.hidden = !sliding;
@@ -146,10 +150,13 @@ function recompute() {
   const realHeight = box.realOuterHeight
     ? ` (alto real con reborde: ${round(box.realOuterHeight, 1)})`
     : '';
+  const Nc = Number.isFinite(params.lengthDividers) ? params.lengthDividers : 0;
+  const Ns = Number.isFinite(params.heightDividers) ? params.heightDividers : 0;
+  const compartments = (Nc > 0 || Ns > 0) ? ` · Compartimentos ${Nc + 1} × ${Ns + 1}` : '';
   summaryEl.textContent =
     `Exterior ${dims(box.outer)}${realHeight} · Interior ${dims(box.inner)} · ` +
     `Hoja ${currentSvg.getAttribute('width')} × ${currentSvg.getAttribute('height')} · ` +
-    `Espigas ${box.joints.x.tabs}/${box.joints.y.tabs}/${box.joints.z.tabs} por junta (largo/ancho/alto)`;
+    `Espigas ${box.joints.x.tabs}/${box.joints.y.tabs}/${box.joints.z.tabs} por junta (largo/ancho/alto)${compartments}`;
 
   if (box.groove) {
     engraveNote.textContent =
