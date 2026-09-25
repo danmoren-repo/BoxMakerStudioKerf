@@ -30,6 +30,9 @@
       gripDiameterFor, gripStemSpanFor, gripGeometry, crossHoleFeature,
       buildTopHole, buildInsertPanel, buildHandlePanels, validateGrip, gripWarnings,
     } from './js/boxes/lid-grip.js';
+    import {
+      evenPositions, buildLengthDividerPoints, buildHeightDividerPoints,
+    } from './js/boxes/dividers.js';
 
     const results = [];
     const TOL = 1e-6;
@@ -1269,6 +1272,54 @@
       const withStrayGrip = buildBox({ ...BASE, grip: true });
       const without = buildBox(BASE);
       assert(withStrayGrip.panels.length === without.panels.length, 'un grip:true en lidType finger no debería agregar piezas');
+    });
+
+    // --- Divisores internos: posiciones y formas base ---
+
+    check('divisores: evenPositions reparte a distancias iguales, sin tocar los extremos', () => {
+      assert(JSON.stringify(evenPositions(144, 3)) === JSON.stringify([36, 72, 108]),
+        `evenPositions(144,3) = ${JSON.stringify(evenPositions(144, 3))}`);
+      assert(JSON.stringify(evenPositions(114, 2)) === JSON.stringify([38, 76]),
+        `evenPositions(114,2) = ${JSON.stringify(evenPositions(114, 2))}`);
+      assert(JSON.stringify(evenPositions(100, 0)) === '[]', 'evenPositions con count=0 debería dar []');
+      assert(JSON.stringify(evenPositions(100, 1)) === '[50]', 'evenPositions(100,1) debería dar [50]');
+    });
+
+    check('divisores: buildLengthDividerPoints sin posiciones da un rectángulo liso de 4 puntos', () => {
+      const pts = buildLengthDividerPoints({
+        width: 44, height: 114, notchDepth: 22, notchWidth: 2.9, positions: [],
+      });
+      assert(pts.length === 4, `${pts.length} puntos, esperaba 4`);
+      const bb = boundingBox(pts);
+      assert(near(bb.width, 44) && near(bb.height, 114), `bbox ${bb.width}x${bb.height}, esperaba 44x114`);
+      assertSimplePolygon(pts, 'buildLengthDividerPoints sin muescas');
+    });
+
+    check('divisores: buildLengthDividerPoints con 2 muescas reproduce el ejemplo de referencia (Nc=3,Ns=2)', () => {
+      const positions = evenPositions(114, 2); // [38, 76] — alto interior 114, 2 divisores de alto
+      const pts = buildLengthDividerPoints({
+        width: 44, height: 114, notchDepth: 22, notchWidth: 2.9, positions,
+      });
+      assert(pts.length === 12, `${pts.length} puntos, esperaba 12 (4 esquinas + 2 muescas x 4)`);
+      const bb = boundingBox(pts);
+      assert(near(bb.width, 44) && near(bb.height, 114), 'las muescas no deberían agrandar el bbox: son cortes hacia adentro');
+      assertSimplePolygon(pts, 'buildLengthDividerPoints con 2 muescas');
+      // La muesca en v=76 debería llegar hasta u=22 (notchDepth) y no más lejos.
+      const notchPoints = pts.filter((p) => near(p.y, 76 + 1.45) || near(p.y, 76 - 1.45));
+      assert(notchPoints.some((p) => near(p.x, 22)), 'la muesca en v=76 debería tener un punto en u=22 (notchDepth)');
+    });
+
+    check('divisores: buildHeightDividerPoints con 3 muescas reproduce el ejemplo de referencia (Nc=3,Ns=2)', () => {
+      const positions = evenPositions(144, 3); // [36, 72, 108] — largo interior 144, 3 divisores de largo
+      const pts = buildHeightDividerPoints({
+        width: 144, height: 44, notchDepth: 22, notchWidth: 2.9, positions,
+      });
+      assert(pts.length === 15, `${pts.length} puntos, esperaba 15 (3 esquinas + 3 muescas x 4)`);
+      const bb = boundingBox(pts);
+      assert(near(bb.width, 144) && near(bb.height, 44), 'las muescas no deberían agrandar el bbox');
+      assertSimplePolygon(pts, 'buildHeightDividerPoints con 3 muescas');
+      const notchPoints = pts.filter((p) => near(p.x, 72 + 1.45) || near(p.x, 72 - 1.45));
+      assert(notchPoints.some((p) => near(p.y, 22)), 'la muesca en u=72 debería tener un punto en v=22 (notchDepth)');
     });
 
     const failed = results.filter((r) => !r.ok);
