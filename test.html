@@ -1457,6 +1457,21 @@
       assert(withGrip.panels.length === 11, `${withGrip.panels.length} piezas, esperaba 11 (9 de la agarradera + 2 divisores)`);
     });
 
+    // --- Divisores internos: integración con buildSlidingBox() (sliding-box.js) ---
+
+    check('divisores + buildSlidingBox: sin divisores, sigue dando exactamente 6 piezas (regresión)', () => {
+      const box = buildSlidingBox(SLIDE);
+      assert(box.errors.length === 0, box.errors.join(' | '));
+      assert(box.panels.length === 6, `${box.panels.length} piezas, esperaba 6`);
+    });
+
+    check('divisores + buildSlidingBox: con divisores de largo y de alto, cruzan y dan las piezas de las dos', () => {
+      const box = buildSlidingBox({ ...SLIDE, lengthDividers: 2, heightDividers: 1 });
+      assert(box.errors.length === 0, box.errors.join(' | '));
+      assert(box.panels.length === 9, `${box.panels.length} piezas, esperaba 9 (6 + 2 + 1)`);
+      for (const p of box.panels) assertSimplePolygon(p.points, `${p.id} (buildSlidingBox con divisores)`);
+    });
+
     const failed = results.filter((r) => !r.ok);
     document.getElementById('summary').textContent =
       failed.length === 0
