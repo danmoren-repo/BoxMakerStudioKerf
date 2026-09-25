@@ -1423,6 +1423,40 @@
       assert(!insidePolygonGrip({ x: 72, y: 33 }, dividerH1), 'DIVIDER-H1 en (72,33) debería estar vacío (dentro de la muesca)');
     });
 
+    // --- Divisores internos: integración con buildBox() (simple-box.js) ---
+
+    check('divisores + buildBox: sin divisores, sigue dando exactamente 6 piezas (regresión)', () => {
+      const withoutDividers = buildBox(BASE);
+      assert(withoutDividers.errors.length === 0, withoutDividers.errors.join(' | '));
+      assert(withoutDividers.panels.length === 6, `${withoutDividers.panels.length} piezas, esperaba 6`);
+    });
+
+    check('divisores + buildBox: con 1 divisor de largo, da 7 piezas sin errores (tapa con espigas)', () => {
+      const box = buildBox({ ...BASE, lengthDividers: 1 });
+      assert(box.errors.length === 0, box.errors.join(' | '));
+      assert(box.panels.length === 7, `${box.panels.length} piezas, esperaba 7`);
+      assert(box.panels.find((p) => p.id === 'divider-l1'), 'falta divider-l1');
+    });
+
+    check('divisores + buildBox: con divisores de largo Y de alto, cruzan y dan las piezas de las dos', () => {
+      const box = buildBox({ ...BASE, lengthDividers: 3, heightDividers: 2 });
+      assert(box.errors.length === 0, box.errors.join(' | '));
+      assert(box.panels.length === 11, `${box.panels.length} piezas, esperaba 11 (6 + 3 + 2)`);
+      for (const p of box.panels) assertSimplePolygon(p.points, `${p.id} (buildBox con divisores cruzados)`);
+    });
+
+    check('divisores + buildBox: funcionan igual con la tapa plana, con y sin agarradera', () => {
+      const plain = buildBox({ ...FLAT, lengthDividers: 1 });
+      assert(plain.errors.length === 0, plain.errors.join(' | '));
+      assert(plain.panels.length === 7, `${plain.panels.length} piezas, esperaba 7`);
+
+      const withGrip = buildBox({
+        ...FLAT, grip: true, lengthDividers: 1, heightDividers: 1,
+      });
+      assert(withGrip.errors.length === 0, withGrip.errors.join(' | '));
+      assert(withGrip.panels.length === 11, `${withGrip.panels.length} piezas, esperaba 11 (9 de la agarradera + 2 divisores)`);
+    });
+
     const failed = results.filter((r) => !r.ok);
     document.getElementById('summary').textContent =
       failed.length === 0

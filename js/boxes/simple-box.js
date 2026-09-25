@@ -13,6 +13,9 @@ import {
   validateBasics,
   validateTabsVsKerf,
 } from './shared.js';
+import {
+  buildDividerPanels, validateDividers, dividerWarnings,
+} from './dividers.js';
 
 // Suggested finger width: ~3x material thickness, never under 6 mm, and always
 // small enough that the shortest joint still gets at least three segments.
@@ -43,6 +46,8 @@ export function buildBox(params) {
   const gripEnabled = flatLid && params.grip === true;
   const gd = gripEnabled ? gripDiameterFor(params) : null;
   const gs = gripEnabled ? gripStemSpanFor(params) : null;
+  const lengthDividers = Number.isFinite(params.lengthDividers) ? params.lengthDividers : 0;
+  const heightDividers = Number.isFinite(params.heightDividers) ? params.heightDividers : 0;
   const wallHeight = wallHeightFor(Ho, t, lidType);
 
   const spanX = Lo - 2 * t; // Front/Back <-> Top/Bottom joints
@@ -57,6 +62,11 @@ export function buildBox(params) {
   if (gripEnabled && errors.length === 0) {
     errors.push(...validateGrip({
       t, gd, gs, spanX, spanY,
+    }));
+  }
+  if (errors.length === 0) {
+    errors.push(...validateDividers({
+      lengthDividers, heightDividers, spanY, t,
     }));
   }
   if (errors.length > 0) return { errors, warnings: [], panels: [] };
@@ -148,6 +158,10 @@ export function buildBox(params) {
     panels.push(handleA, handleB);
   }
 
+  panels.push(...buildDividerPanels({
+    spanX, spanY, dividerHeight: spanZ, t, kerf, lengthDividers, heightDividers,
+  }));
+
   return {
     panels,
     joints,
@@ -158,6 +172,9 @@ export function buildBox(params) {
         t, kerf, tabWidth,
       }),
       ...(gripEnabled ? gripWarnings({ gd, gs }) : []),
+      ...dividerWarnings({
+        lengthDividers, heightDividers, spanX, dividerHeight: spanZ, t,
+      }),
     ],
     outer: { length: Lo, width: Wo, height: Ho },
     inner: { length: Lo - 2 * t, width: Wo - 2 * t, height: Ho - 2 * t },
