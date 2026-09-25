@@ -1435,7 +1435,11 @@
       const box = buildBox({ ...BASE, lengthDividers: 1 });
       assert(box.errors.length === 0, box.errors.join(' | '));
       assert(box.panels.length === 7, `${box.panels.length} piezas, esperaba 7`);
-      assert(box.panels.find((p) => p.id === 'divider-l1'), 'falta divider-l1');
+      const divider = box.panels.find((p) => p.id === 'divider-l1');
+      assert(divider, 'falta divider-l1');
+      const bb = boundingBox(divider.points);
+      assert(near(bb.height, box.inner.height),
+        `divider-l1 mide ${bb.height} de alto, esperaba ${box.inner.height} (box.inner.height)`);
     });
 
     check('divisores + buildBox: con divisores de largo Y de alto, cruzan y dan las piezas de las dos', () => {
@@ -1449,6 +1453,11 @@
       const plain = buildBox({ ...FLAT, lengthDividers: 1 });
       assert(plain.errors.length === 0, plain.errors.join(' | '));
       assert(plain.panels.length === 7, `${plain.panels.length} piezas, esperaba 7`);
+      const plainDivider = plain.panels.find((p) => p.id === 'divider-l1');
+      assert(plainDivider, 'falta divider-l1');
+      const plainBb = boundingBox(plainDivider.points);
+      assert(near(plainBb.height, plain.inner.height),
+        `divider-l1 (tapa plana) mide ${plainBb.height} de alto, esperaba ${plain.inner.height} (box.inner.height)`);
 
       const withGrip = buildBox({
         ...FLAT, grip: true, lengthDividers: 1, heightDividers: 1,

@@ -57,6 +57,11 @@ export function buildBox(params) {
   // borde, dos escotaduras perpendiculares se tocarían en la esquina y dejarían
   // ahí una lengüeta más fina que el kerf.
   const spanZ = wallHeight - 2 * t; //  Front/Back <-> Left/Right joints
+  // Alto interior real (piso a cara interior de la tapa), igual para ambas
+  // tapas. spanZ NO sirve aquí: trae un -t extra que solo existe para dejar
+  // maciza la esquina del dentado vertical de la tapa de dedos (ver arriba);
+  // con tapa plana el canto superior es liso y ese inset no aplica.
+  const dividerHeight = Ho - 2 * t;
 
   const errors = validate({ Lo, Wo, Ho, spanX, spanY, spanZ, t, kerf, tabWidth, flatLid });
   if (gripEnabled && errors.length === 0) {
@@ -159,7 +164,7 @@ export function buildBox(params) {
   }
 
   panels.push(...buildDividerPanels({
-    spanX, spanY, dividerHeight: spanZ, t, kerf, lengthDividers, heightDividers,
+    spanX, spanY, dividerHeight, t, kerf, lengthDividers, heightDividers,
   }));
 
   return {
@@ -173,7 +178,7 @@ export function buildBox(params) {
       }),
       ...(gripEnabled ? gripWarnings({ gd, gs }) : []),
       ...dividerWarnings({
-        lengthDividers, heightDividers, spanX, dividerHeight: spanZ, t,
+        lengthDividers, heightDividers, spanX, dividerHeight, t,
       }),
     ],
     outer: { length: Lo, width: Wo, height: Ho },
