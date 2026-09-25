@@ -8,6 +8,9 @@ import {
   validateBasics,
   validateTabsVsKerf,
 } from './shared.js';
+import {
+  buildDividerPanels, validateDividers, dividerWarnings,
+} from './dividers.js';
 
 const DEFAULT_CLEARANCE = 0.2;
 const MAX_AUTO_GROOVE_DEPTH = 6;
@@ -69,10 +72,16 @@ export function buildSlidingBox(params) {
   const spanZFront = frontHeight - 2 * t; // frente <-> laterales
   const spanZBack = wallHeight - 2 * t; // fondo <-> laterales
 
+  const lengthDividers = Number.isFinite(params.lengthDividers) ? params.lengthDividers : 0;
+  const heightDividers = Number.isFinite(params.heightDividers) ? params.heightDividers : 0;
+
   const errors = validate({
     Lo, Wo, Ho, t, tl, h, p, kerf, tabWidth,
     spanX, spanY, spanZFront, spanZBack, frontHeight,
   });
+  if (errors.length === 0) {
+    errors.push(...validateDividers({ lengthDividers, heightDividers, spanY, t }));
+  }
   if (errors.length > 0) return { errors, warnings: [], panels: [] };
 
   const joints = {
@@ -194,16 +203,22 @@ export function buildSlidingBox(params) {
   const material = { thickness: t, kerf, tabWidth };
   const panels = specs.map((spec) => ({ ...spec, points: panelOutline(spec, material) }));
   const lid = panels.find((panel) => panel.id === 'lid');
+  panels.push(...buildDividerPanels({
+    spanX, spanY, dividerHeight: innerHeight, t, kerf, lengthDividers, heightDividers,
+  }));
 
   return {
     panels,
     joints,
     errors,
-    warnings: warningsFor({
-      jointWidths: [joints.x.width, joints.y.width, joints.z.width, joints.zBack.width],
-      t, kerf, tabWidth, p, h, tl, backSegment: joints.zBack.width,
-      lidWidth: lid.width, lidDepth: lid.height,
-    }),
+    warnings: [
+      ...warningsFor({
+        jointWidths: [joints.x.width, joints.y.width, joints.z.width, joints.zBack.width],
+        t, kerf, tabWidth, p, h, tl, backSegment: joints.zBack.width,
+        lidWidth: lid.width, lidDepth: lid.height,
+      }),
+      ...dividerWarnings({ lengthDividers, heightDividers, spanX, dividerHeight: innerHeight, t }),
+    ],
     outer: { length: Lo, width: Wo, height: Ho },
     inner: { length: spanX, width: spanY, height: innerHeight },
     realOuterHeight: wallHeight,

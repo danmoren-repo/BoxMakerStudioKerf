@@ -40,6 +40,8 @@ Luego abre http://localhost:8000 en el navegador.
 | Kerf (mm) | 0.15 | Es el ancho que se come el láser al cortar. Se calibra con un corte de prueba. Referencia orientativa: MDF 3 mm ≈ 0.10–0.20 mm, acrílico ≈ 0.15–0.25 mm. Debe ser siempre menor que el grosor del material. |
 | Auto (ancho de espiga) | activado | Cuando está activo, calcula el ancho de la espiga (tab) por ti con la regla de abajo. Desactívalo para fijar un valor manual. |
 | Ancho de espiga / tab (mm) | 18 (solo se usa si Auto está apagado) | Con Auto activo se ignora este valor y se recalcula. |
+| Divisores de largo | 0 | Cuántos divisores verticales parten la caja en columnas a lo largo del eje Largo. Se reparten solos, a distancias iguales. |
+| Divisores de alto | 0 | Cuántos divisores horizontales (estantes) parten la caja en capas apiladas en altura. Se reparten solos, a distancias iguales. Usando los dos tipos de divisor a la vez, se cruzan con una ranura a media madera. |
 
 **Regla del ancho de espiga automático** (`autoTabWidthFromSpans` en `js/boxes/shared.js`, que cada tipo de caja llama con sus propias aristas): aproximadamente 3 veces el grosor del material, nunca por debajo de 6 mm, y siempre lo bastante pequeño para que la arista más corta de la caja quede con al menos 3 segmentos de espiga.
 
@@ -59,7 +61,7 @@ Con un material nuevo, lo primero es hacer un corte de prueba en cartón para ca
 ## Cómo está hecho
 
 - `js/core/` — geometría pura (segmentación de juntas, kerf, puntos de un panel). No sabe nada sobre "cajas": son funciones matemáticas reutilizables.
-- `js/boxes/` — los tipos de caja concretos: `simple-box.js` (caja cerrada y tapa plana), `sliding-box.js` (tapa deslizante), `hinged-box.js` (tapa con bisagra), `lid-grip.js` (agarradera de la tapa plana: perilla en dos piezas y el agujero en cruz, reutilizada por `simple-box.js`) y `shared.js` con lo que todos comparten.
+- `js/boxes/` — los tipos de caja concretos: `simple-box.js` (caja cerrada y tapa plana), `sliding-box.js` (tapa deslizante), `hinged-box.js` (tapa con bisagra), `lid-grip.js` (agarradera de la tapa plana), `dividers.js` (divisores internos: columnas, capas y su ranura de cruce, reutilizado por los tres tipos de caja) y `shared.js` con lo que todos comparten.
 - `js/render/` — convierte la geometría en el SVG final (layout en la hoja, unidades en mm, exportación del archivo).
 - `js/ui/` — conecta el formulario HTML con todo lo anterior: lee los parámetros, recalcula en vivo y genera el nombre del archivo al descargar.
 
@@ -67,7 +69,7 @@ Está separado así para que un futuro tipo de caja (por ejemplo una con tapa de
 
 ## Verificación
 
-Con el servidor local corriendo, abre http://localhost:8000/test.html. Es una página de self-checks que corre en el navegador y muestra una lista con cada prueba en verde (✔) o rojo (✘). Actualmente son **81 checks** (los de geometría compartida corren sobre los tres tipos de tapa que la comparten, más un bloque propio para la tapa con bisagra): cubren desde que `buildBox` no produzca errores con parámetros válidos, la segmentación de juntas, que las espigas macho encajen exactamente en las ranuras hembra, el efecto del kerf, el modo de medidas interiores, el ancho de espiga automático, hasta un barrido de combinaciones de parámetros para asegurarse de que nada produzca `NaN`.
+Con el servidor local corriendo, abre http://localhost:8000/test.html. Es una página de self-checks que corre en el navegador y muestra una lista con cada prueba en verde (✔) o rojo (✘). Actualmente son **103 checks** (los de geometría compartida corren sobre los tres tipos de tapa que la comparten, más un bloque propio para la tapa con bisagra): cubren desde que `buildBox` no produzca errores con parámetros válidos, la segmentación de juntas, que las espigas macho encajen exactamente en las ranuras hembra, el efecto del kerf, el modo de medidas interiores, el ancho de espiga automático, hasta un barrido de combinaciones de parámetros para asegurarse de que nada produzca `NaN`.
 
 Seis de esos checks vigilan específicamente las esquinas, que es donde este tipo de generador se rompe: que ninguna pieza tenga material más fino que el kerf (sería incortable), que las esquinas de las tapas frontales queden macizas, que una ranura que llega al borde lo haga sin dejar una lengüeta de medio kerf, que ningún contorno se doble sobre sí mismo (una línea recorrida dos veces = el láser cortando dos veces sobre el mismo sitio), que ninguna esquina quede sujeta por un puente de material más fino que el kerf (se caería al cortar), y que ninguna espiga del lateral invada la esquina por donde tiene que entrar la tapa deslizante (la tapa se quedaría a medio camino).
 

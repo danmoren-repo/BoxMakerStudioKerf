@@ -8,6 +8,9 @@ import {
   validateBasics,
   validateTabsVsKerf,
 } from './shared.js';
+import {
+  buildDividerPanels, validateDividers, dividerWarnings,
+} from './dividers.js';
 
 // La tapa puede ser de otro grosor que la caja. Sin valor, copia la pared.
 export function lidThicknessFor({ thickness, lidThickness }) {
@@ -89,10 +92,15 @@ export function buildHingedBox(params) {
   const spanX = Lo - 2 * t; // frente/fondo <-> base
   const spanY = Wo - 2 * t; // laterales <-> base
   const spanZ = wallHeight - 2 * t; // juntas verticales, iguales en las cuatro paredes
+  const lengthDividers = Number.isFinite(params.lengthDividers) ? params.lengthDividers : 0;
+  const heightDividers = Number.isFinite(params.heightDividers) ? params.heightDividers : 0;
 
   const errors = validate({
     Lo, Wo, Ho, t, tl, ps, hc, kerf, tabWidth, spanX, spanY, spanZ, hw, hd,
   });
+  if (errors.length === 0) {
+    errors.push(...validateDividers({ lengthDividers, heightDividers, spanY, t }));
+  }
   if (errors.length > 0) return { errors, warnings: [], panels: [] };
 
   const joints = {
@@ -286,16 +294,22 @@ export function buildHingedBox(params) {
     },
     points: lidWithPegs(),
   };
-  const panels = [generic.bottom, front, left, lid, generic.back, right];
+  const dividerPanels = buildDividerPanels({
+    spanX, spanY, dividerHeight: wallHeight - t, t, kerf, lengthDividers, heightDividers,
+  });
+  const panels = [generic.bottom, front, left, lid, generic.back, right, ...dividerPanels];
 
   return {
     panels,
     joints,
     errors,
-    warnings: warningsFor({
-      jointWidths: [joints.x.width, joints.y.width, joints.z.width],
-      t, kerf, tabWidth, hc, rh, postWidth, spanY, hw, Lo,
-    }),
+    warnings: [
+      ...warningsFor({
+        jointWidths: [joints.x.width, joints.y.width, joints.z.width],
+        t, kerf, tabWidth, hc, rh, postWidth, spanY, hw, Lo,
+      }),
+      ...dividerWarnings({ lengthDividers, heightDividers, spanX, dividerHeight: wallHeight - t, t }),
+    ],
     outer: { length: Lo, width: Wo, height: Ho },
     inner: { length: spanX, width: spanY, height: wallHeight - t },
     hinge: { pegSize: ps, clearance: hc, holeDiameter: dh, postHeight },

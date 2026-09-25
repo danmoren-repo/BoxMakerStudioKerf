@@ -13,6 +13,9 @@ import {
   validateBasics,
   validateTabsVsKerf,
 } from './shared.js';
+import {
+  buildDividerPanels, validateDividers, dividerWarnings,
+} from './dividers.js';
 
 // Suggested finger width: ~3x material thickness, never under 6 mm, and always
 // small enough that the shortest joint still gets at least three segments.
@@ -43,6 +46,8 @@ export function buildBox(params) {
   const gripEnabled = flatLid && params.grip === true;
   const gd = gripEnabled ? gripDiameterFor(params) : null;
   const gs = gripEnabled ? gripStemSpanFor(params) : null;
+  const lengthDividers = Number.isFinite(params.lengthDividers) ? params.lengthDividers : 0;
+  const heightDividers = Number.isFinite(params.heightDividers) ? params.heightDividers : 0;
   const wallHeight = wallHeightFor(Ho, t, lidType);
 
   const spanX = Lo - 2 * t; // Front/Back <-> Top/Bottom joints
@@ -52,11 +57,21 @@ export function buildBox(params) {
   // borde, dos escotaduras perpendiculares se tocarían en la esquina y dejarían
   // ahí una lengüeta más fina que el kerf.
   const spanZ = wallHeight - 2 * t; //  Front/Back <-> Left/Right joints
+  // Alto interior real (piso a cara interior de la tapa), igual para ambas
+  // tapas. spanZ NO sirve aquí: trae un -t extra que solo existe para dejar
+  // maciza la esquina del dentado vertical de la tapa de dedos (ver arriba);
+  // con tapa plana el canto superior es liso y ese inset no aplica.
+  const dividerHeight = Ho - 2 * t;
 
   const errors = validate({ Lo, Wo, Ho, spanX, spanY, spanZ, t, kerf, tabWidth, flatLid });
   if (gripEnabled && errors.length === 0) {
     errors.push(...validateGrip({
       t, gd, gs, spanX, spanY,
+    }));
+  }
+  if (errors.length === 0) {
+    errors.push(...validateDividers({
+      lengthDividers, heightDividers, spanY, t,
     }));
   }
   if (errors.length > 0) return { errors, warnings: [], panels: [] };
@@ -148,6 +163,10 @@ export function buildBox(params) {
     panels.push(handleA, handleB);
   }
 
+  panels.push(...buildDividerPanels({
+    spanX, spanY, dividerHeight, t, kerf, lengthDividers, heightDividers,
+  }));
+
   return {
     panels,
     joints,
@@ -158,6 +177,9 @@ export function buildBox(params) {
         t, kerf, tabWidth,
       }),
       ...(gripEnabled ? gripWarnings({ gd, gs }) : []),
+      ...dividerWarnings({
+        lengthDividers, heightDividers, spanX, dividerHeight, t,
+      }),
     ],
     outer: { length: Lo, width: Wo, height: Ho },
     inner: { length: Lo - 2 * t, width: Wo - 2 * t, height: Ho - 2 * t },
