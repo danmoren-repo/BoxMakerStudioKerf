@@ -137,10 +137,15 @@ completa (a ras con el hueco, de canto a canto).
   más allá TANTO del canto que da al frente COMO del canto que da al
   fondo — dos bultos simples, uno en cada uno de esos dos cantos, ambos
   ubicados en la misma franja X (pegados al canto interior de la mitad).
-- Sin refuerzo redondeado en la base (decisión tomada arriba) — esquinas
-  rectas simples. Sí se redondea la PUNTA de la lengüeta (radio `hr`,
-  mismo parámetro `handleCornerRadiusFor` ya existente), igual que la
-  manija de la bisagra simple, para mantener el mismo estilo visual.
+- Sin refuerzo redondeado en la base (decisión tomada arriba), y **tampoco
+  se redondea la punta** — a diferencia de la manija de la bisagra simple
+  (que sí tiene la punta redondeada), acá la lengüeta llega A RAS del
+  propio canto interior de la mitad, no queda "flotando" rodeada de canto
+  recto por los tres lados como la manija. Redondear esa esquina crearía
+  un escaloncito justo donde la lengüeta se funde con el canto de la
+  mitad — más complicación geométrica sin necesidad real. Esquinas rectas
+  en toda la lengüeta, coherente con la simplificación ya aprobada para la
+  base. (`handleCornerRadiusFor` no se usa en este archivo.)
 - Las paredes frontal y trasera llevan, cada una, UNA muesca centrada en
   `Lo / 2`, de ancho `hw` (la suma de lo que aporta cada mitad) y
   profundidad `hd`, cortada hacia adentro desde su canto superior — misma
@@ -155,18 +160,18 @@ completa (a ras con el hueco, de canto a canto).
 ### Ejemplo de referencia
 
 80 × 80 × 80 exteriores, `t = 3`, `tl = 3`, `ps = 3`, `hc = 1`, `em = 2`,
-`hw = 20`, `hd = 8`, `hr = 2`:
+`hw = 20`, `hd = 8`:
 
 | | |
 |---|---|
 | Suelo a canto superior de paredes frontal/trasera/laterales | 80 (altura completa, no acortada) |
 | Laterales (izquierda/derecha) | 74 × 80, lisas |
-| Frontal/trasera, fuera de los postes | 74 × 80 |
-| Frontal/trasera, altura en cada poste | 74 × 83.1213 |
+| Frontal/trasera, fuera de los postes | 80 × 80 (ancho `Lo`, no `spanY` — esa fila es de los laterales) |
+| Frontal/trasera, altura en cada poste | 83.1213 |
 | Agujero | diámetro 5.2426 (√(3² + 3²) + 1), centro a `t/2` = 1.5 mm bajo el canto superior de la pared |
 | Cada mitad de la tapa | 37 × 74 |
 | Espiga | cuadrado macizo de 3 × 3 mm, a 4.6213 mm (`em + rh`) del canto exterior de cada mitad |
-| Lengüeta | 10 × 8 mm por mitad (`hw/2` × `hd`), punta con radio 2 |
+| Lengüeta | 10 × 8 mm por mitad (`hw/2` × `hd`), esquinas rectas (sin redondear, ver arriba) |
 | Muesca en frontal/trasera | 20 × 8 mm, centrada en X = 40 |
 
 ## Modelo de datos
@@ -225,7 +230,8 @@ no es `Lo` sino la mitad:
 | `hw <= 0` | El ancho de la lengüeta debe ser mayor que 0. |
 | `hd <= 0` | La profundidad de la lengüeta debe ser mayor que 0. |
 | La lengüeta (`hw`) no deja pared a los costados de cada muesca: `hw + 2·em >= Lo` | La lengüeta es demasiado ancha para el frente: no deja pared a los costados. |
-| Cada mitad de la tapa queda demasiado angosta para sus dos espigas: `(Lo − 2t) / 2 <= 0` o no le cabe la espiga | El material es demasiado grueso para una caja de este largo: no queda espacio para las dos mitades de la tapa. |
+| Cada mitad de la tapa queda demasiado angosta para su espiga y su lengüeta a la vez: `em + rh + ps/2 >= doorWidth − hw/2` | El material es demasiado grueso, o la manija demasiado ancha, para una caja de este largo: la espiga y la lengüeta de cada mitad se pisarían. |
+| Los postes de bisagra invaden la muesca de la manija: `leftPostEnd >= notchStart` o `notchEnd >= rightPostStart` | Los postes de bisagra invaden la muesca de la manija: baja el tamaño de espiga, la holgura, o el ancho de manija. |
 
 ### Avisos
 
@@ -234,8 +240,7 @@ no es `Lo` sino la mitad:
 | `hc` muy chica | La bisagra va a quedar dura, puede no girar. |
 | `hc` muy grande | La bisagra va a quedar floja, con bamboleo notorio. |
 | Poco material alrededor del agujero (material grueso) | Revisa el tamaño de espiga. |
-| Los dos postes de una misma pared (frontal o trasera) no caben sin superponerse — caja corta | Los postes de las dos esquinas se pisan: baja el tamaño de espiga, la holgura, o el margen. |
-| La lengüeta cerca del umbral de choque con los postes | Puede quedar muy cerca del borde. |
+| La manija cerca del margen del canto (sin llegar a pisar los postes) | Puede quedar muy cerca del borde. |
 
 Se mantienen los errores y avisos actuales (dimensiones, kerf vs grosor,
 espigas de junta vs kerf).
@@ -245,8 +250,9 @@ espigas de junta vs kerf).
 - `js/boxes/hinged-double-box.js` — nuevo, siguiendo el patrón de
   `hinged-box.js`. Importa y reutiliza directamente `pegSizeFor`,
   `hingeClearanceFor`, `EDGE_MARGIN`, `handleWidthFor`, `handleDepthFor`,
-  `handleCornerRadiusFor`, `lidThicknessFor` desde `hinged-box.js` — no se
-  duplican.
+  `lidThicknessFor` desde `hinged-box.js` — no se duplican.
+  `handleCornerRadiusFor` no se importa: la lengüeta no se redondea (ver
+  arriba).
 - `js/core/panel.js` — sin cambios (`holeFeature` ya existe).
 - `js/render/svg-render.js` — sin cambios estructurales (mismo patrón de
   capas que la bisagra simple).
