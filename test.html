@@ -32,6 +32,7 @@
     } from './js/boxes/lid-grip.js';
     import {
       evenPositions, buildLengthDividerPoints, buildHeightDividerPoints,
+      validateDividers, dividerWarnings,
     } from './js/boxes/dividers.js';
 
     const results = [];
@@ -1331,6 +1332,44 @@
       const bb = boundingBox(pts);
       assert(near(bb.width, 144) && near(bb.height, 44), `bbox ${bb.width}x${bb.height}, esperaba 144x44`);
       assertSimplePolygon(pts, 'buildHeightDividerPoints sin muescas');
+    });
+
+    check('divisores: validateDividers no da error con cantidades válidas y espacio de sobra', () => {
+      const errors = validateDividers({
+        lengthDividers: 3, heightDividers: 2, spanY: 44, t: 3,
+      });
+      assert(errors.length === 0, errors.join(' | '));
+    });
+
+    check('divisores: validateDividers rechaza cantidades no enteras o negativas', () => {
+      assert(validateDividers({ lengthDividers: 1.5, heightDividers: 0, spanY: 44, t: 3 }).length === 1,
+        'debería rechazar 1.5');
+      assert(validateDividers({ lengthDividers: -1, heightDividers: 0, spanY: 44, t: 3 }).length === 1,
+        'debería rechazar -1');
+      assert(validateDividers({ lengthDividers: undefined, heightDividers: 0, spanY: 44, t: 3 }).length === 0,
+        'sin valor (undefined) debería tratarse como 0, sin error');
+    });
+
+    check('divisores: validateDividers da error si el cruce no deja material (spanY/2 <= t)', () => {
+      const errors = validateDividers({
+        lengthDividers: 1, heightDividers: 1, spanY: 5, t: 3,
+      });
+      assert(errors.length === 1, `esperaba 1 error, dio ${errors.length}`);
+      const onlyOneType = validateDividers({
+        lengthDividers: 1, heightDividers: 0, spanY: 5, t: 3,
+      });
+      assert(onlyOneType.length === 0, 'sin cruce (un solo tipo activo) no debería dar este error');
+    });
+
+    check('divisores: dividerWarnings avisa cuando los compartimentos quedan angostos', () => {
+      const tight = dividerWarnings({
+        lengthDividers: 20, heightDividers: 0, spanX: 144, dividerHeight: 114, t: 3,
+      });
+      assert(tight.length === 1, `esperaba 1 aviso, dio ${tight.length}`);
+      const loose = dividerWarnings({
+        lengthDividers: 3, heightDividers: 2, spanX: 144, dividerHeight: 114, t: 3,
+      });
+      assert(loose.length === 0, loose.join(' | '));
     });
 
     const failed = results.filter((r) => !r.ok);

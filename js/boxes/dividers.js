@@ -66,3 +66,63 @@ export function buildHeightDividerPoints({
   points.push({ x: 0, y: height });
   return points;
 }
+
+const MIN_COMPARTMENT_RATIO = 3; // aviso si un compartimento queda por debajo de 3x el grosor
+
+function isDividerCount(n) {
+  return Number.isInteger(n) && n >= 0;
+}
+
+// Sin valor (undefined/NaN) se trata como 0 divisores — mismo criterio que
+// el resto de los parámetros opcionales de este proyecto.
+function resolveCount(n) {
+  return Number.isFinite(n) ? n : 0;
+}
+
+export function validateDividers({
+  lengthDividers, heightDividers, spanY, t,
+}) {
+  const Nc = resolveCount(lengthDividers);
+  const Ns = resolveCount(heightDividers);
+  const errors = [];
+
+  if (!isDividerCount(Nc) || !isDividerCount(Ns)) {
+    errors.push('La cantidad de divisores debe ser un número entero de 0 en adelante.');
+    return errors;
+  }
+  // La ranura de cruce llega hasta spanY/2: si eso no supera el grosor del
+  // material, la muesca deja un filo más fino que su propio ancho, o
+  // directamente se cruza con la muesca opuesta.
+  if (Nc > 0 && Ns > 0 && spanY / 2 <= t) {
+    errors.push(
+      `El ancho interior de ${spanY.toFixed(1)} mm es demasiado angosto para cruzar divisores de largo y de alto: la ranura no deja material suficiente.`,
+    );
+  }
+  return errors;
+}
+
+export function dividerWarnings({
+  lengthDividers, heightDividers, spanX, dividerHeight, t,
+}) {
+  const Nc = resolveCount(lengthDividers);
+  const Ns = resolveCount(heightDividers);
+  const warnings = [];
+
+  if (Nc > 0) {
+    const compartment = spanX / (Nc + 1);
+    if (compartment < MIN_COMPARTMENT_RATIO * t) {
+      warnings.push(
+        `Los compartimentos de largo quedan de ${compartment.toFixed(1)} mm, muy angostos para ${t} mm de material.`,
+      );
+    }
+  }
+  if (Ns > 0) {
+    const compartment = dividerHeight / (Ns + 1);
+    if (compartment < MIN_COMPARTMENT_RATIO * t) {
+      warnings.push(
+        `Los compartimentos de alto quedan de ${compartment.toFixed(1)} mm, muy angostos para ${t} mm de material.`,
+      );
+    }
+  }
+  return warnings;
+}
