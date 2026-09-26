@@ -17,7 +17,7 @@ export function lidThicknessFor({ thickness, lidThickness }) {
   return Number.isFinite(lidThickness) ? lidThickness : thickness;
 }
 
-const DEFAULT_HINGE_CLEARANCE = 1;
+const DEFAULT_HINGE_CLEARANCE = 0.5;
 export const EDGE_MARGIN = 2; // material mínimo alrededor de cualquier corte cerrado
 
 // La espiga es un cuadrado macizo del mismo grosor que el material — no un
