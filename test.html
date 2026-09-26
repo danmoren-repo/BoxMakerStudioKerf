@@ -792,7 +792,7 @@
     check('bisagra: el agujero de cada lateral está centrado a em + rh del canto superior del poste', () => {
       // dh (y por lo tanto rh) sale de la diagonal (ps, tl), no de ps solo
       // — ver el comentario de hingedHeights. Con los valores canónicos
-      // (ps=tl=3, hc=1): dh = √(3²+3²) + 1 ≈ 5.2426, rh ≈ 2.6213.
+      // (ps=tl=3, hc=0.5): dh = √(3²+3²) + 0.5 ≈ 4.7426, rh ≈ 2.3713.
       const rh = hinged.hinge.holeDiameter / 2;
       const expectedCy = 2 + rh; // em + rh
       for (const id of ['left', 'right']) {
