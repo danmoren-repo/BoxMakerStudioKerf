@@ -15,17 +15,26 @@ export function evenPositions(span, count) {
 // spec, "Uno.svg"). Usada por DIVIDER-L: `width` es spanY, `height` es el
 // alto interior libre, y cada posición es la altura (eje Z) de un divisor
 // de alto que lo cruza.
+// `topCornerCut` ({ width, depth }), opcional, recorta un rectángulo en las
+// dos esquinas superiores (y = 0) — deja paso a una tapa que gira hacia
+// adentro de la caja.
 export function buildLengthDividerPoints({
-  width, height, notchDepth, notchWidth, positions,
+  width, height, notchDepth, notchWidth, positions, topCornerCut,
 }) {
   const half = notchWidth / 2;
   // Se recorre en sentido horario: tras las 3 primeras esquinas, el borde
   // izquierdo se camina de abajo (y = height) hacia arriba (y = 0), así
   // que las muescas se insertan ordenadas de mayor a menor y.
   const sorted = [...positions].sort((a, b) => b - a);
+  const cut = topCornerCut;
+  const top = cut
+    ? [
+      { x: 0, y: cut.depth }, { x: cut.width, y: cut.depth }, { x: cut.width, y: 0 },
+      { x: width - cut.width, y: 0 }, { x: width - cut.width, y: cut.depth }, { x: width, y: cut.depth },
+    ]
+    : [{ x: 0, y: 0 }, { x: width, y: 0 }];
   const points = [
-    { x: 0, y: 0 },
-    { x: width, y: 0 },
+    ...top,
     { x: width, y: height },
     { x: 0, y: height },
   ];
@@ -128,7 +137,7 @@ export function dividerWarnings({
 }
 
 export function buildDividerPanels({
-  spanX, spanY, dividerHeight, t, kerf, lengthDividers, heightDividers,
+  spanX, spanY, dividerHeight, t, kerf, lengthDividers, heightDividers, topCornerCut,
 }) {
   const Nc = resolveCount(lengthDividers);
   const Ns = resolveCount(heightDividers);
@@ -143,6 +152,7 @@ export function buildDividerPanels({
     notchDepth,
     notchWidth,
     positions: evenPositions(dividerHeight, Ns),
+    topCornerCut,
   });
   const heightPoints = buildHeightDividerPoints({
     width: spanX,

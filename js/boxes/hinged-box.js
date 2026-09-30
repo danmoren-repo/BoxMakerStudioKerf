@@ -19,6 +19,10 @@ export function lidThicknessFor({ thickness, lidThickness }) {
 
 const DEFAULT_HINGE_CLEARANCE = 0.5;
 export const EDGE_MARGIN = 2; // material mínimo alrededor de cualquier corte cerrado
+// Juego entre el canto de la tapa y la cara interior de la pared donde gira,
+// para que no roce al abrir. La espiga se alarga lo mismo, así su punta sigue
+// a ras de la cara exterior de la pared.
+export const LID_SIDE_GAP = 0.2;
 
 // La espiga es un cuadrado macizo del mismo grosor que el material — no un
 // diámetro aparte, no un múltiplo. 3 mm de material → espiga de 3 mm.
@@ -41,15 +45,15 @@ export function handleCornerRadiusFor({ handleCornerRadius }) {
 }
 
 // Ho es la distancia de la base a la cara superior de la tapa cerrada, igual
-// que en las otras tapas. Las cuatro paredes quedan a Ho − tl, como la tapa
-// plana: la tapa se apoya encima y queda a ras.
+// que en las otras tapas. Las cuatro paredes llegan a Ho y la tapa queda
+// ADENTRO de la abertura, a ras del canto (mismo esquema que el generador de
+// Vector Painter): si se apoyara encima, la parte de la tapa que queda detrás
+// del eje bajaría contra la pared trasera al abrir y la trabaría.
 //
-// La espiga es plana y vive exactamente a la altura de la tapa cerrada. Para
-// que el agujero del lateral quede cerrado (con material por encima, no
-// abierto al canto) el lateral tiene que llegar más alto que Ho − tl en la
-// esquina trasera. postHeight es cuánto: media tapa hasta el centro del
-// agujero (tl/2), más el radio del agujero (rh), más el margen de material
-// que tiene que quedar por encima (em).
+// El eje de giro está a tl/2 bajo el canto de las paredes. El agujero casi
+// siempre se pasa por encima de ese canto (rh > tl/2), así que el lateral
+// lleva un poste en la esquina trasera que cubre esa diferencia más el
+// margen de material (em).
 //
 // El agujero NO puede ser del tamaño de la espiga más un poco: la espiga
 // (un cuadrado macizo) gira dentro del agujero al abrir/cerrar la tapa, y
@@ -65,14 +69,17 @@ export function hingedHeights(params) {
   const dh = Math.sqrt(ps * ps + tl * tl) + hc;
   const rh = dh / 2;
   const { Lo, Wo, Ho } = outerDimensions(params, t + tl);
-  const postHeight = tl / 2 + rh + EDGE_MARGIN;
+  const postHeight = Math.max(0, rh - tl / 2) + EDGE_MARGIN;
   const postWidth = dh + 2 * EDGE_MARGIN;
+  // Distancia del eje a la cara interior de la pared trasera.
+  const pivotInset = EDGE_MARGIN + rh;
 
   return {
     Lo, Wo, Ho, t, tl, ps, hc, dh, rh,
-    wallHeight: Ho - tl,
+    wallHeight: Ho,
     postHeight,
     postWidth,
+    pivotInset,
   };
 }
 
@@ -87,16 +94,37 @@ export function buildHingedBox(params) {
   const hd = handleDepthFor(params);
   const hr = handleCornerRadiusFor(params);
   const {
-    Lo, Wo, Ho, t, tl, ps, hc, dh, rh, wallHeight, postHeight, postWidth,
+    Lo, Wo, Ho, t, tl, ps, hc, dh, rh, wallHeight, postHeight, postWidth, pivotInset,
   } = hingedHeights(params);
   const spanX = Lo - 2 * t; // frente/fondo <-> base
   const spanY = Wo - 2 * t; // laterales <-> base
   const spanZ = wallHeight - 2 * t; // juntas verticales, iguales en las cuatro paredes
+  const innerHeight = wallHeight - t - tl;
+  // La tapa vive dentro de la abertura, con juego g contra laterales y
+  // frente. lidX0/lidY0 son dónde arranca, en absolutos de la caja.
+  const g = LID_SIDE_GAP;
+  const lidW = Lo - 2 * t - 2 * g;
+  const lidX0 = t + g;
+  const lidY0 = t + g;
+  const pegOut = t + g;
+  // Canto trasero: las esquinas traseras de la tapa giran en un círculo de
+  // radio pivotInset − g alrededor del eje, así que nunca tocan la pared
+  // trasera (que está a pivotInset del eje).
+  const pivotY = Wo - t - pivotInset;
+  const swingRadius = pivotInset - g;
+  const backReach = Math.sqrt(Math.max(0, swingRadius ** 2 - (tl / 2) ** 2));
+  const lidD = pivotY + backReach - lidY0;
+  // La manija atraviesa la muesca del frente con juego g a cada lado; la
+  // muesca mide lo mismo que la tapa de hondo, así la manija se apoya en su
+  // fondo y sostiene la tapa a ras.
+  const handleW = hw - 2 * g;
+  const handleOut = hd + g;
   const lengthDividers = Number.isFinite(params.lengthDividers) ? params.lengthDividers : 0;
   const heightDividers = Number.isFinite(params.heightDividers) ? params.heightDividers : 0;
 
   const errors = validate({
-    Lo, Wo, Ho, t, tl, ps, hc, kerf, tabWidth, spanX, spanY, spanZ, hw, hd,
+    Lo, Wo, Ho, t, tl, ps, hc, kerf, tabWidth, spanX, spanY, spanZ, hw, hd, lidW,
+    swingRadius, innerHeight,
   });
   if (errors.length === 0) {
     errors.push(...validateDividers({ lengthDividers, heightDividers, spanY, t }));
@@ -123,18 +151,18 @@ export function buildHingedBox(params) {
   // buildFrontWall ya la necesita para su propia muesca.
   const handleStart = Lo / 2 - hw / 2;
 
-  // La muesca del frente hace juego con la manija de la tapa: juntas dejan un
-  // hueco por el que meter el dedo. Se injerta igual que el poste del
-  // lateral: los dos primeros puntos de panelOutline son las esquinas del
-  // canto superior (acá 'top' es plain, así que no se mezcla con nada más).
+  // La muesca del frente deja pasar la manija de la tapa. Se injerta igual
+  // que el poste del lateral: los dos primeros puntos de panelOutline son las
+  // esquinas del canto superior (acá 'top' es plain, así que no se mezcla
+  // con nada más).
   const buildFrontWall = () => {
     const basePoints = panelOutline(endWall, material);
     const rest = basePoints.slice(2);
     return {
       id: 'front', label: 'FRONT', width: Lo, height: wallHeight, edges: endWallEdges,
       points: [
-        { x: 0, y: 0 }, { x: handleStart, y: 0 }, { x: handleStart, y: hd },
-        { x: handleStart + hw, y: hd }, { x: handleStart + hw, y: 0 }, { x: Lo, y: 0 },
+        { x: 0, y: 0 }, { x: handleStart, y: 0 }, { x: handleStart, y: tl },
+        { x: handleStart + hw, y: tl }, { x: handleStart + hw, y: 0 }, { x: Lo, y: 0 },
         ...rest,
       ],
     };
@@ -174,9 +202,9 @@ export function buildHingedBox(params) {
       : [backCorner, stepUp, nearPoint, frontCorner];
     const points = [...top, ...rest];
 
-    const holeCenterX = isLeft ? spanY - EDGE_MARGIN - rh : EDGE_MARGIN + rh;
+    const holeCenterX = isLeft ? spanY - pivotInset : pivotInset;
     const hole = holeFeature({
-      id: 'hinge-hole', cx: holeCenterX, cy: EDGE_MARGIN + rh, diameter: dh, kerf,
+      id: 'hinge-hole', cx: holeCenterX, cy: postHeight + tl / 2, diameter: dh, kerf,
     });
 
     return {
@@ -195,20 +223,15 @@ export function buildHingedBox(params) {
   // tres rondas de arreglos antes de salir bien y aun así no era el
   // mecanismo que hacía falta).
   //
-  // El centro de la espiga, en Y absoluto de la caja, tiene que coincidir
-  // con el centro del agujero de su lateral — cy usa la MISMA fórmula que
-  // ya estaba (y ya está verificada) para el agujero del lateral, sólo que
-  // ahora también es el centro de la espiga, no sólo del disco que hacía
-  // antes. No sale de "cerca del canto trasero con un margen fijo": sale
-  // de dónde tiene que estar el agujero para que el poste (ver más arriba)
-  // le quede encima con material, y la espiga simplemente copia esa
-  // posición.
+  // El centro de la espiga tiene que coincidir con el centro del agujero de
+  // su lateral: el eje (pivotY, en absolutos), pasado a coordenadas de la
+  // tapa.
   const pegBump = (isLeft) => {
-    const cy = Wo - t - EDGE_MARGIN - rh;
+    const cy = pivotY - lidY0;
     const near = cy - ps / 2;
     const far = cy + ps / 2;
-    const edgeX = isLeft ? 0 : Lo;
-    const outX = isLeft ? -ps : Lo + ps;
+    const edgeX = isLeft ? 0 : lidW;
+    const outX = isLeft ? -pegOut : lidW + pegOut;
     // El recorrido de la tapa sube por el canto derecho (y creciente) y
     // baja por el izquierdo (y decreciente) — cada uno entra al bulto por
     // el extremo que le toca primero según ese sentido.
@@ -254,19 +277,31 @@ export function buildHingedBox(params) {
   };
 
   const lidWithPegs = () => {
-    const handle = handleCapPoints(handleStart, hw, -hd, hr);
-    // Rectángulo Lo × Wo en sentido horario: manija injertada en el canto
+    const lidHandleStart = handleStart + g - lidX0;
+    const handle = handleCapPoints(lidHandleStart, handleW, -handleOut, hr);
+    // Rectángulo lidW × lidD en sentido horario: manija injertada en el canto
     // delantero (y = 0), espiga derecha injertada en el canto derecho
-    // (x = Lo, subiendo), canto trasero (y = Wo) intacto, espiga izquierda
+    // (x = lidW, subiendo), canto trasero (y = lidD) intacto, espiga izquierda
     // injertada en el canto izquierdo (x = 0, bajando).
     return [
-      { x: 0, y: 0 }, { x: handleStart, y: 0 }, ...handle, { x: handleStart + hw, y: 0 },
-      { x: Lo, y: 0 },
+      { x: 0, y: 0 }, { x: lidHandleStart, y: 0 }, ...handle, { x: lidHandleStart + handleW, y: 0 },
+      { x: lidW, y: 0 },
       ...pegBump(false),
-      { x: Lo, y: Wo },
-      { x: 0, y: Wo },
+      { x: lidW, y: lidD },
+      { x: 0, y: lidD },
       ...pegBump(true),
     ];
+  };
+
+  // Al abrir, la cola de la tapa (lo que queda detrás del eje) baja dentro
+  // de la caja: barre un círculo de radio swingRadius alrededor del eje y,
+  // pasados los 90°, avanza también por delante del eje. Los divisores de
+  // largo llegan hasta la pared trasera, así que se les recorta la esquina
+  // superior para que no la traben. Se recortan las DOS esquinas (frente y
+  // fondo) para que la pieza no tenga un lado correcto de montaje.
+  const dividerTopCut = {
+    width: 2 * pivotInset,
+    depth: pivotInset - tl / 2,
   };
 
   const specs = [
@@ -287,7 +322,7 @@ export function buildHingedBox(params) {
   const left = buildSideWall('left', 'LEFT', 'left');
   const right = buildSideWall('right', 'RIGHT', 'right');
   const lid = {
-    id: 'lid', label: 'LID', width: Lo, height: Wo,
+    id: 'lid', label: 'LID', width: lidW, height: lidD,
     edges: {
       top: { gender: 'plain' }, bottom: { gender: 'plain' },
       left: { gender: 'plain' }, right: { gender: 'plain' },
@@ -295,7 +330,8 @@ export function buildHingedBox(params) {
     points: lidWithPegs(),
   };
   const dividerPanels = buildDividerPanels({
-    spanX, spanY, dividerHeight: wallHeight - t, t, kerf, lengthDividers, heightDividers,
+    spanX, spanY, dividerHeight: innerHeight, t, kerf, lengthDividers, heightDividers,
+    topCornerCut: dividerTopCut,
   });
   const panels = [generic.bottom, front, left, lid, generic.back, right, ...dividerPanels];
 
@@ -308,16 +344,17 @@ export function buildHingedBox(params) {
         jointWidths: [joints.x.width, joints.y.width, joints.z.width],
         t, kerf, tabWidth, hc, rh, postWidth, spanY, hw, Lo,
       }),
-      ...dividerWarnings({ lengthDividers, heightDividers, spanX, dividerHeight: wallHeight - t, t }),
+      ...dividerWarnings({ lengthDividers, heightDividers, spanX, dividerHeight: innerHeight, t }),
     ],
     outer: { length: Lo, width: Wo, height: Ho },
-    inner: { length: spanX, width: spanY, height: wallHeight - t },
+    inner: { length: spanX, width: spanY, height: innerHeight },
     hinge: { pegSize: ps, clearance: hc, holeDiameter: dh, postHeight },
   };
 }
 
 function validate({
-  Lo, Wo, Ho, t, tl, ps, hc, kerf, tabWidth, spanX, spanY, spanZ, hw, hd,
+  Lo, Wo, Ho, t, tl, ps, hc, kerf, tabWidth, spanX, spanY, spanZ, hw, hd, lidW,
+  swingRadius, innerHeight,
 }) {
   const errors = validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho });
   if (errors.length > 0) return errors;
@@ -334,8 +371,11 @@ function validate({
   if (spanX <= 0 || spanY <= 0) {
     errors.push(`El material de ${t} mm es demasiado grueso para una caja de ${Lo} × ${Wo} mm: no queda espacio dentro.`);
   }
-  if (spanZ <= 0) {
+  if (spanZ <= 0 || innerHeight <= 0) {
     errors.push(`Con ${t} mm de material, una caja de ${Ho} mm de alto no deja pared entre la base y la tapa.`);
+  }
+  if (swingRadius <= tl / 2) {
+    errors.push('La tapa es demasiado gruesa para la espiga: no queda sitio detrás del eje para que gire. Sube el tamaño de espiga o la holgura.');
   }
   // La manija (y su muesca a juego en la pared frontal) viven en el canto
   // delantero, lejos de las espigas (que ahora salen de los cantos
@@ -344,6 +384,8 @@ function validate({
   // sólida a cada lado de la muesca del frente.
   if (hw + 2 * EDGE_MARGIN >= Lo) {
     errors.push(`La manija (${hw} mm) es demasiado ancha para el frente: no deja pared a los costados.`);
+  } else if (hw - 2 * LID_SIDE_GAP <= 0 || hw >= lidW) {
+    errors.push(`La manija (${hw} mm) es más ancha que la tapa (${lidW.toFixed(1)} mm entre laterales).`);
   }
   if (errors.length > 0) return errors;
 

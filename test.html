@@ -770,25 +770,60 @@
       assert(hp('lid'), 'falta la tapa');
     });
 
-    check('bisagra: de suelo a tapa da el alto pedido, con tl = t las paredes miden igual que la tapa plana', () => {
+    check('bisagra: las paredes llegan al alto completo y la tapa queda adentro, a ras', () => {
       assert(near(hinged.outer.height, 80), `alto exterior ${hinged.outer.height}`);
-      assert(near(hp('front').height, 77), `frente ${hp('front').height}, esperaba 77`);
-      assert(near(hp('back').height, 77), `fondo ${hp('back').height}, esperaba 77`);
-      assert(near(hinged.inner.height, 74), `interior ${hinged.inner.height}, esperaba 74`);
+      assert(near(hp('front').height, 80), `frente ${hp('front').height}, esperaba 80`);
+      assert(near(hp('back').height, 80), `fondo ${hp('back').height}, esperaba 80`);
+      assert(near(hinged.inner.height, 74), `interior ${hinged.inner.height}, esperaba 74 (80 − base 3 − tapa 3)`);
     });
 
-    check('bisagra: la tapa sobresale por los tres cantos con algo — laterales (espigas) y delantero (manija)', () => {
-      // La espiga (cuadrado macizo de lado ps) sale de los cantos laterales,
-      // así que el ancho de la bounding box ya no es Lo sino Lo + 2·ps. La
-      // manija sigue saliendo del canto delantero (handleDepth, ahora
-      // t + 5 por defecto), así que el alto sigue siendo Wo + handleDepth.
-      // El canto trasero (el eje de giro) no lleva nada, así que no aporta.
+    // La tapa gira entre los laterales: cuerpo = Lo − 2t − 2·juego, y cada
+    // espiga sale t + juego para atravesar el lateral y quedar a ras.
+    const LID_GAP = 0.2;
+    const LID_W = 80 - 2 * 3 - 2 * LID_GAP; // 73.6
+    const PEG_OUT = 3 + LID_GAP; // 3.2
+    const H_RH = hinged.hinge.holeDiameter / 2;
+    const PIVOT_INSET = 2 + H_RH; // em + rh: del eje a la cara interior del fondo
+    const PIVOT_Y = 80 - 3 - PIVOT_INSET; // eje, en Y absoluto
+    const LID_Y0 = 3 + LID_GAP; // canto delantero de la tapa, en Y absoluto
+    const SWING = PIVOT_INSET - LID_GAP;
+    const BACK_REACH = Math.sqrt(SWING ** 2 - 1.5 ** 2);
+    const LID_D = PIVOT_Y + BACK_REACH - LID_Y0;
+    const PEG_CY = PIVOT_Y - LID_Y0; // centro de la espiga en coords de la tapa
+    const HANDLE_OUT = 8 + LID_GAP; // handleDepth por defecto + juego
+
+    check('bisagra: el cuerpo de la tapa cabe entre los laterales con 0.2 mm de juego por lado', () => {
+      const lid = hp('lid');
+      assert(near(lid.width, LID_W, 1e-6), `tapa de ${lid.width} mm, esperaba ${LID_W} (80 − 2×3 − 2×0.2)`);
+      const bodyXs = lid.points.filter((p) => near(p.y, LID_D, 1e-6)).map((p) => p.x);
+      assert(near(Math.min(...bodyXs), 0) && near(Math.max(...bodyXs), LID_W),
+        `canto trasero de ${Math.min(...bodyXs)} a ${Math.max(...bodyXs)}, esperaba 0 a ${LID_W}`);
+    });
+
+    check('bisagra: la tapa termina antes de la pared trasera y su cola gira sin tocarla', () => {
+      const lid = hp('lid');
+      assert(near(lid.height, LID_D, 1e-6), `fondo de la tapa ${lid.height}, esperaba ${LID_D}`);
+      const backEdgeAbs = LID_Y0 + lid.height;
+      assert(backEdgeAbs < 80 - 3, `la tapa llega a y=${backEdgeAbs}, se mete en la pared trasera (cara interior en 77)`);
+      // Las esquinas traseras (arriba y abajo de la tapa) giran con este radio;
+      // tiene que ser menor que la distancia del eje a la pared.
+      const cornerRadius = Math.hypot(backEdgeAbs - PIVOT_Y, 1.5);
+      assert(cornerRadius < PIVOT_INSET - 0.1,
+        `las esquinas traseras giran a ${cornerRadius.toFixed(3)} mm del eje, la pared está a ${PIVOT_INSET.toFixed(3)}`);
+    });
+
+    check('bisagra: de punta a punta de las espigas la tapa mide lo mismo que la caja (Lo)', () => {
+      // Con las espigas, la tapa ocupa exactamente el ancho exterior: las
+      // puntas quedan a ras de la cara exterior de cada lateral.
       const lid = hp('lid');
       const bb = boundingBox(lid.points);
-      const expectedWidth = 80 + 2 * hinged.hinge.pegSize;
-      const expectedHeight = 80 + 8; // handleDepth por defecto = thickness (3) + 5
-      assert(near(bb.width, expectedWidth, 0.05), `tapa ancho ${bb.width}, esperaba ${expectedWidth} (80 + 2×${hinged.hinge.pegSize} de espigas)`);
-      assert(near(bb.height, expectedHeight, 0.05), `tapa alto ${bb.height}, esperaba ${expectedHeight} (80 + 8 de manija)`);
+      assert(near(bb.width, 80, 0.01), `tapa ancho total ${bb.width}, esperaba 80 (${LID_W} + 2×${PEG_OUT})`);
+      assert(near(bb.minX, -PEG_OUT, 0.01), `espiga izquierda llega a x=${bb.minX}, esperaba ${-PEG_OUT}`);
+      assert(near(bb.height, LID_D + HANDLE_OUT, 0.05), `tapa alto ${bb.height}, esperaba ${LID_D + HANDLE_OUT}`);
+    });
+
+    check('bisagra: el contorno de la tapa es un polígono simple', () => {
+      assertSimplePolygon(hp('lid').points, 'lid');
     });
 
     check('bisagra: modo interiores da el hueco pedido', () => {
@@ -821,10 +856,10 @@
     });
 
     check('bisagra: el poste sobresale por encima del nivel de la tapa cerrada', () => {
-      const expectedHeight = 77 + hinged.hinge.postHeight;
+      const expectedHeight = 80 + hinged.hinge.postHeight;
       for (const id of ['left', 'right']) {
         const p = hp(id);
-        assert(near(p.height, expectedHeight, 0.05), `${id}: alto ${p.height}, esperaba ${expectedHeight} (77 + ${hinged.hinge.postHeight.toFixed(4)} de poste)`);
+        assert(near(p.height, expectedHeight, 0.05), `${id}: alto ${p.height}, esperaba ${expectedHeight} (80 + ${hinged.hinge.postHeight.toFixed(4)} de poste)`);
         const bb = boundingBox(p.points);
         assert(near(bb.minY, 0), `${id}: el contorno no llega a y=0, el poste no se dibujó`);
       }
@@ -872,25 +907,30 @@
       // La espiga es un cuadrado macizo sin curvas: sus 4 vértices son
       // exactos, no aproximados — se pueden comparar por igualdad, no por
       // distancia a un centro como hacía falta con el disco anterior.
-      const cy = 80 - 3 - 2 - hinged.hinge.holeDiameter / 2; // Wo - t - em - rh
+      const cy = PEG_CY;
       const near_ = cy - ps / 2;
       const far = cy + ps / 2;
       const hasVertex = (x, y) => lid.points.some((p) => near(p.x, x, 0.01) && near(p.y, y, 0.01));
       assert(hasVertex(0, near_) && hasVertex(0, far), 'falta el vértice de la espiga izquierda donde toca el canto (x=0)');
-      assert(hasVertex(-ps, near_) && hasVertex(-ps, far), `falta el vértice exterior de la espiga izquierda (x=${-ps})`);
-      assert(hasVertex(80, near_) && hasVertex(80, far), 'falta el vértice de la espiga derecha donde toca el canto (x=80)');
-      assert(hasVertex(80 + ps, near_) && hasVertex(80 + ps, far), `falta el vértice exterior de la espiga derecha (x=${80 + ps})`);
+      assert(hasVertex(-PEG_OUT, near_) && hasVertex(-PEG_OUT, far), `falta el vértice exterior de la espiga izquierda (x=${-PEG_OUT})`);
+      assert(hasVertex(LID_W, near_) && hasVertex(LID_W, far), `falta el vértice de la espiga derecha donde toca el canto (x=${LID_W})`);
+      assert(hasVertex(LID_W + PEG_OUT, near_) && hasVertex(LID_W + PEG_OUT, far), `falta el vértice exterior de la espiga derecha (x=${LID_W + PEG_OUT})`);
     });
 
     check('bisagra: la espiga de cada canto lateral queda centrada sobre el agujero de su lateral', () => {
       // El centro Y de la espiga (en absolutos de la caja) tiene que
       // coincidir con el centro Y del agujero de su lateral — misma
-      // fórmula, ver el comentario de pegBump en hinged-box.js.
-      const expectedCy = 80 - 3 - 2 - hinged.hinge.holeDiameter / 2; // Wo - t - em - rh
-      const ps = hinged.hinge.pegSize;
+      // fórmula, ver el comentario de pegBump en hinged-box.js. En absolutos
+      // tiene que caer en el eje: PEG_CY + LID_Y0 = PIVOT_Y, que a su vez es
+      // el centro del agujero del lateral (spanY − (em+rh), + t).
+      const expectedCy = PEG_CY;
+      const holeLeft = hp('left').features.find((f) => f.id === 'hinge-hole');
+      const hb = boundingBox(holeLeft.points);
+      const holeAbsY = 3 + (hb.minX + hb.maxX) / 2;
+      assert(near(expectedCy + LID_Y0, holeAbsY, 0.01), `espiga en y abs=${expectedCy + LID_Y0}, agujero en ${holeAbsY}`);
       const lid = hp('lid');
-      const leftPegYs = lid.points.filter((p) => near(p.x, -ps, 0.01)).map((p) => p.y);
-      const rightPegYs = lid.points.filter((p) => near(p.x, 80 + ps, 0.01)).map((p) => p.y);
+      const leftPegYs = lid.points.filter((p) => near(p.x, -PEG_OUT, 0.01)).map((p) => p.y);
+      const rightPegYs = lid.points.filter((p) => near(p.x, LID_W + PEG_OUT, 0.01)).map((p) => p.y);
       assert(leftPegYs.length === 2, `espiga izquierda: ${leftPegYs.length} vértices exteriores, esperaba 2`);
       assert(rightPegYs.length === 2, `espiga derecha: ${rightPegYs.length} vértices exteriores, esperaba 2`);
       const centerOf = (ys) => (Math.min(...ys) + Math.max(...ys)) / 2;
@@ -900,13 +940,13 @@
 
     check('bisagra: el canto trasero de la tapa (el eje de giro) queda intacto, sin espigas ni manija', () => {
       const lid = hp('lid');
-      // El canto trasero es y = Wo (80): un único segmento recto de (Lo,Wo)
-      // a (0,Wo), sin nada injertado ahí — las dos esquinas son los ÚNICOS
-      // vértices con y ≈ Wo, y ningún punto de la tapa lo sobrepasa.
-      const atBackEdge = lid.points.filter((p) => near(p.y, 80, 1e-6));
+      // El canto trasero es y = LID_D: un único segmento recto, sin nada
+      // injertado ahí — las dos esquinas son los ÚNICOS vértices con
+      // y ≈ LID_D, y ningún punto de la tapa lo sobrepasa.
+      const atBackEdge = lid.points.filter((p) => near(p.y, LID_D, 1e-6));
       assert(atBackEdge.length === 2,
-        `${atBackEdge.length} vértices en y = 80, esperaba 2 (las dos esquinas traseras, canto limpio)`);
-      const beyondBack = lid.points.filter((p) => p.y > 80 + 0.01);
+        `${atBackEdge.length} vértices en y = ${LID_D}, esperaba 2 (las dos esquinas traseras, canto limpio)`);
+      const beyondBack = lid.points.filter((p) => p.y > LID_D + 0.01);
       assert(beyondBack.length === 0, 'ningún punto de la tapa debe sobresalir por detrás del canto trasero');
     });
 
@@ -922,8 +962,23 @@
       const beyondFront = lid.points.filter((p) => p.y < -0.01);
       assert(beyondFront.length > 0, 'ningún punto de la tapa sobresale por delante: falta la manija');
       const minY = Math.min(...lid.points.map((p) => p.y));
-      // handleDepth por defecto = thickness (3) + 5 = 8, no un fijo de 6.
-      assert(near(minY, -8, 0.05), `la manija sobresale ${-minY} mm, esperaba 8`);
+      // handleDepth por defecto = thickness (3) + 5 = 8, más el juego del
+      // frente: la punta queda 5 mm fuera de la cara exterior.
+      assert(near(minY, -HANDLE_OUT, 0.05), `la manija sobresale ${-minY} mm, esperaba ${HANDLE_OUT}`);
+    });
+
+    check('bisagra: la manija deja 0.2 mm de juego a cada lado dentro de la muesca', () => {
+      const lid = hp('lid');
+      const xs = lid.points.filter((p) => p.y < -0.01).map((p) => p.x);
+      const widthHandle = Math.max(...xs) - Math.min(...xs);
+      assert(near(widthHandle, 20 - 2 * LID_GAP, 0.01), `manija de ${widthHandle} mm, esperaba ${20 - 2 * LID_GAP}`);
+    });
+
+    check('bisagra: la muesca del frente mide de hondo lo mismo que la tapa (la manija se apoya y la sostiene a ras)', () => {
+      const front = hp('front');
+      const notchYs = front.points.filter((p) => p.y > 0.01 && p.y < 10 && p.x > 20 && p.x < 60).map((p) => p.y);
+      assert(notchYs.length === 2, `${notchYs.length} vértices de fondo de muesca, esperaba 2`);
+      for (const y of notchYs) assert(near(y, 3, 1e-6), `fondo de la muesca en y=${y}, esperaba 3 (grosor de la tapa)`);
     });
 
     check('bisagra: la manija queda centrada en X', () => {
@@ -932,7 +987,7 @@
       const tip = lid.points.filter((p) => near(p.y, minY, 0.5));
       const xs = tip.map((p) => p.x);
       const center = (Math.min(...xs) + Math.max(...xs)) / 2;
-      assert(near(center, 40, 0.5), `manija centrada en x=${center}, esperaba 40 (Lo/2)`);
+      assert(near(center, LID_W / 2, 0.01), `manija centrada en x=${center}, esperaba ${LID_W / 2} (centro de la tapa = Lo/2 absoluto)`);
     });
 
     check('bisagra: la pared frontal tiene una muesca del mismo ancho, en la misma posición', () => {
@@ -1515,6 +1570,32 @@
       for (const p of box.panels) assertSimplePolygon(p.points, `${p.id} (buildHingedBox con divisores)`);
     });
 
+    check('divisores + buildHingedBox: el divisor de largo llega al alto interior y deja libre el giro de la cola de la tapa', () => {
+      const box = buildHingedBox({ ...HINGED, lengthDividers: 1 });
+      const d = box.panels.find((p) => p.id === 'divider-l1');
+      const bb = boundingBox(d.points);
+      assert(near(bb.height, box.inner.height), `divisor de ${bb.height} de alto, esperaba ${box.inner.height}`);
+      // El eje está a (em + rh) de la pared trasera y a tl/2 sobre el canto
+      // del divisor; la cola barre un disco de radio SWING. Ningún punto del
+      // divisor puede caer dentro de ese disco (con la cola girando hacia
+      // adelante, también por delante del eje). Se muestrea el contorno del
+      // divisor en ambos sentidos de montaje.
+      const pivotFromBackEnd = PIVOT_INSET;
+      for (const flip of [false, true]) {
+        for (let i = 0; i < d.points.length; i++) {
+          const a = d.points[i];
+          const b = d.points[(i + 1) % d.points.length];
+          for (let s = 0; s <= 20; s++) {
+            const px = a.x + ((b.x - a.x) * s) / 20;
+            const py = a.y + ((b.y - a.y) * s) / 20;
+            const fromBack = flip ? px : bb.width - px;
+            const dist = Math.hypot(fromBack - pivotFromBackEnd, py + 1.5);
+            assert(dist >= SWING - 1e-6, `el divisor toca la cola de la tapa en (${px.toFixed(2)}, ${py.toFixed(2)})`);
+          }
+        }
+      }
+    });
+
 
     check('bisagra doble: siete piezas y ningún error', () => {
       assert(hingedDouble.errors.length === 0, hingedDouble.errors.join(' | '));
@@ -1532,14 +1613,19 @@
       assert(near(bbFront.maxY, 80), `frente: canto inferior en y=${bbFront.maxY}, esperaba 80 (Ho completo)`);
     });
 
-    check('bisagra doble: cada mitad de la tapa mide (Lo−2t)/2 × (Wo−2t)', () => {
-      const expectedWidth = (80 - 6) / 2; // 37
+    // Cada mitad deja 0.2 mm de juego por lado: contra su lateral, contra la
+    // otra mitad, y contra frontal y trasera.
+    const D_GAP = 0.2;
+    const DOOR_W = (80 - 6) / 2 - 2 * D_GAP; // 36.6
+    const DOOR_D = 80 - 6 - 2 * D_GAP; // 73.6
+    const D_PEG_OUT = 3 + D_GAP;
+
+    check('bisagra doble: cada mitad de la tapa mide (Lo−2t)/2 − 2·juego × (Wo−2t) − 2·juego', () => {
       for (const id of ['lid-left', 'lid-right']) {
-        const bb = boundingBox(hdp(id).points);
-        // El ancho del CUERPO (sin los bultos) es doorWidth; los bultos de
-        // espiga y lengüeta sobresalen por fuera de eso, así que el bbox
-        // completo mide más — se comprueba por separado más abajo.
-        assert(near(bb.width, expectedWidth, 0.01), `${id}: ancho de bbox ${bb.width}, esperaba ${expectedWidth} (el cuerpo llega exacto al bbox en X)`);
+        const p = hdp(id);
+        const bb = boundingBox(p.points);
+        assert(near(bb.width, DOOR_W, 0.01), `${id}: ancho de bbox ${bb.width}, esperaba ${DOOR_W} (el cuerpo llega exacto al bbox en X)`);
+        assert(near(p.height, DOOR_D, 1e-6), `${id}: fondo del cuerpo ${p.height}, esperaba ${DOOR_D}`);
       }
     });
 
@@ -1596,14 +1682,12 @@
       // bbox.minY es de la lengüeta, no de la espiga. Se filtra por X,
       // cerca del canto exterior (x≈0 en lid-left, x≈doorWidth en
       // lid-right), lejos de donde vive la lengüeta.
-      const ps = hingedDouble.hinge.pegSize;
-      const doorWidth = (80 - 6) / 2;
       const nearOuterEdge = (points, outerX) => points.filter((p) => Math.abs(p.x - outerX) < 10);
       const leftPegPts = nearOuterEdge(hdp('lid-left').points, 0);
-      const rightPegPts = nearOuterEdge(hdp('lid-right').points, doorWidth);
+      const rightPegPts = nearOuterEdge(hdp('lid-right').points, DOOR_W);
       const minY = (pts) => Math.min(...pts.map((p) => p.y));
-      assert(near(minY(leftPegPts), -ps, 0.01), `lid-left: minY cerca del canto exterior=${minY(leftPegPts)}, esperaba ${-ps} (la espiga)`);
-      assert(near(minY(rightPegPts), -ps, 0.01), `lid-right: minY cerca del canto exterior=${minY(rightPegPts)}, esperaba ${-ps}`);
+      assert(near(minY(leftPegPts), -D_PEG_OUT, 0.01), `lid-left: minY cerca del canto exterior=${minY(leftPegPts)}, esperaba ${-D_PEG_OUT} (la espiga)`);
+      assert(near(minY(rightPegPts), -D_PEG_OUT, 0.01), `lid-right: minY cerca del canto exterior=${minY(rightPegPts)}, esperaba ${-D_PEG_OUT}`);
     });
 
     check('bisagra doble: la espiga de cada mitad queda centrada sobre el agujero REAL de la pared, en X absoluto', () => {
@@ -1613,11 +1697,9 @@
       // fórmulas (la de la espiga en buildDoor y la del agujero en
       // buildFrontBackWall) se desalinean, esto lo detecta; repetir la
       // misma fórmula en ambos lados del assert no lo haría.
-      const ps = hingedDouble.hinge.pegSize;
       const t = HINGED_DOUBLE.thickness;
-      const doorWidth = (80 - 6) / 2;
       const pegCenterLocalX = (id) => {
-        const xs = hdp(id).points.filter((p) => near(p.y, -ps, 0.5)).map((p) => p.x);
+        const xs = hdp(id).points.filter((p) => near(p.y, -D_PEG_OUT, 0.01)).map((p) => p.x);
         assert(xs.length === 2, `${id}: ${xs.length} vértices en la punta de la espiga, esperaba 2`);
         return (Math.min(...xs) + Math.max(...xs)) / 2;
       };
@@ -1626,11 +1708,11 @@
         return (bb.minX + bb.maxX) / 2;
       }).sort((a, b) => a - b);
 
-      // lid-left ocupa el rango absoluto [t, t+doorWidth]; lid-right ocupa
-      // [t+doorWidth, t+2·doorWidth] — la segunda mitad no arranca en t,
-      // arranca donde termina la primera.
-      const leftPegAbsX = t + pegCenterLocalX('lid-left');
-      const rightPegAbsX = t + doorWidth + pegCenterLocalX('lid-right');
+      // lid-left arranca en x absoluto t + juego (a 0.2 del lateral);
+      // lid-right arranca en Lo/2 + juego (a 0.2 del centro).
+      const leftPegAbsX = t + D_GAP + pegCenterLocalX('lid-left');
+      const rightPegAbsX = 80 / 2 + D_GAP + pegCenterLocalX('lid-right');
+      assert(near(80 / 2 + D_GAP + DOOR_W, 80 - t - D_GAP), 'lid-right no termina a 0.2 mm del lateral derecho');
       for (const wallId of ['front', 'back']) {
         const [leftHoleX, rightHoleX] = holeCentersX(wallId);
         assert(near(leftPegAbsX, leftHoleX, 0.05), `lid-left espiga (abs x=${leftPegAbsX}) vs agujero izquierdo de ${wallId} (x=${leftHoleX})`);
@@ -1640,12 +1722,11 @@
 
     check('bisagra doble: cada mitad lleva su lengüeta en el canto interior, sobresaliendo por el frente y el fondo a la vez', () => {
       const hd = HINGED_DOUBLE.thickness + 5; // handleDepth por defecto
-      const ps = hingedDouble.hinge.pegSize;
       const bbLeft = boundingBox(hdp('lid-left').points);
       const bbRight = boundingBox(hdp('lid-right').points);
-      const spanY = 74;
-      const expectedMinY = -Math.max(hd, ps); // el mayor entre lengüeta y espiga, del lado del frente
-      const expectedMaxY = spanY + hd; // la lengüeta sobresale por el fondo en ambas mitades
+      const tongueOut = hd + D_GAP; // punta en el mismo lugar absoluto que antes del juego
+      const expectedMinY = -Math.max(tongueOut, D_PEG_OUT); // el mayor entre lengüeta y espiga, del lado del frente
+      const expectedMaxY = DOOR_D + tongueOut; // la lengüeta sobresale por el fondo en ambas mitades
       assert(near(bbLeft.minY, expectedMinY, 0.01), `lid-left: minY=${bbLeft.minY}, esperaba ${expectedMinY} (no sobresale lo esperado por el frente)`);
       assert(near(bbLeft.maxY, expectedMaxY, 0.01), `lid-left: maxY=${bbLeft.maxY}, esperaba ${expectedMaxY} (la lengüeta sobresale por el fondo)`);
       assert(near(bbRight.minY, expectedMinY, 0.01), `lid-right: minY=${bbRight.minY}, esperaba ${expectedMinY}`);
@@ -1669,6 +1750,19 @@
       }
     });
 
+    check('bisagra doble: la muesca mide de hondo lo mismo que la tapa y cada lengüeta deja 0.2 mm contra su borde', () => {
+      for (const id of ['front', 'back']) {
+        const ys = hdp(id).points.filter((q) => q.y > 0.01 && q.y < 20 && q.x > 20 && q.x < 60).map((q) => q.y);
+        for (const y of ys) assert(near(y, 3, 1e-6), `${id}: fondo de la muesca en y=${y}, esperaba 3`);
+      }
+      // lid-left arranca en x abs = t + juego. Su lengüeta es lo que sobresale por y < −D_PEG_OUT.
+      const tongueXs = hdp('lid-left').points.filter((p) => p.y < -D_PEG_OUT - 0.01).map((p) => p.x);
+      const tongueStartAbs = 3 + D_GAP + Math.min(...tongueXs);
+      const notchStartAbs = 40 - 10;
+      assert(near(tongueStartAbs - notchStartAbs, D_GAP, 1e-6),
+        `la lengüeta de lid-left arranca a ${(tongueStartAbs - notchStartAbs).toFixed(3)} mm del borde de la muesca, esperaba ${D_GAP}`);
+    });
+
     check('bisagra doble: el agujero de bisagra lleva compensación de kerf', () => {
       const expectedDrawn = hingedDouble.hinge.holeDiameter + HINGED_DOUBLE.kerf;
       const bb = boundingBox(hdp('front').features[0].points);
@@ -1688,12 +1782,11 @@
       const rightPostCx = 80 - 3 - 2 - rh;
       assert(insidePolygon({ x: leftPostCx, y: -hingedDouble.hinge.postHeight / 2 }, front.points), 'poste izquierdo debería ser material');
       assert(insidePolygon({ x: rightPostCx, y: -hingedDouble.hinge.postHeight / 2 }, front.points), 'poste derecho debería ser material');
-      assert(!insidePolygon({ x: 40, y: 3 }, front.points), 'la muesca del medio debería ser vacío');
+      assert(!insidePolygon({ x: 40, y: 1.5 }, front.points), 'la muesca del medio debería ser vacío');
       assert(insidePolygon({ x: 40, y: 40 }, front.points), 'el cuerpo de la pared debería ser material');
 
       const lidLeft = hdp('lid-left');
-      const doorWidth = (80 - 6) / 2;
-      assert(insidePolygon({ x: doorWidth / 2, y: 37 }, lidLeft.points), 'cuerpo de lid-left debería ser material');
+      assert(insidePolygon({ x: DOOR_W / 2, y: 37 }, lidLeft.points), 'cuerpo de lid-left debería ser material');
     });
 
     check('bisagra doble: errores que bloquean la generación', () => {

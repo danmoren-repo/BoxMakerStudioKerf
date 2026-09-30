@@ -15,6 +15,7 @@ import {
   handleWidthFor,
   handleDepthFor,
   EDGE_MARGIN,
+  LID_SIDE_GAP,
 } from './hinged-box.js';
 
 // A diferencia de la bisagra simple (una sola tapa apoyada ENCIMA de
@@ -63,7 +64,14 @@ export function buildHingedDoubleBox(params) {
   const spanX = Lo - 2 * t; // base <-> frontal/trasera
   const spanY = Wo - 2 * t; // base <-> laterales
   const spanZ = wallHeight - 2 * t; // juntas verticales de las esquinas
-  const doorWidth = spanX / 2; // ancho de cada mitad de la tapa
+  // Cada mitad deja un juego g contra su lateral y otro g contra la otra
+  // mitad, y g contra frontal y trasera. Espigas y lengüetas se alargan g
+  // para que sus puntas sigan donde estaban (a ras de la cara exterior).
+  const g = LID_SIDE_GAP;
+  const doorWidth = spanX / 2 - 2 * g; // ancho de cada mitad de la tapa
+  const doorDepth = spanY - 2 * g;
+  const pegOut = t + g;
+  const tongueOut = hd + g;
 
   // Estas cuatro posiciones las necesitan tanto validate() (para chequear
   // que no se pisen) como la construcción de más abajo — se calculan una
@@ -145,8 +153,10 @@ export function buildHingedDoubleBox(params) {
       { x: 0, y: 0 },
       { x: leftPostStart, y: 0 }, { x: leftPostStart, y: -postHeight },
       { x: leftPostEnd, y: -postHeight }, { x: leftPostEnd, y: 0 },
-      { x: notchStart, y: 0 }, { x: notchStart, y: hd },
-      { x: notchEnd, y: hd }, { x: notchEnd, y: 0 },
+      // La muesca mide lo mismo de hondo que la tapa: las lengüetas se
+      // apoyan en su fondo y sostienen las dos mitades a ras.
+      { x: notchStart, y: 0 }, { x: notchStart, y: tl },
+      { x: notchEnd, y: tl }, { x: notchEnd, y: 0 },
       { x: rightPostStart, y: 0 }, { x: rightPostStart, y: -postHeight },
       { x: rightPostEnd, y: -postHeight }, { x: rightPostEnd, y: 0 },
       { x: Lo, y: 0 },
@@ -184,38 +194,43 @@ export function buildHingedDoubleBox(params) {
   // ramas recorren el contorno en el mismo sentido, solo que la espiga y
   // la lengüeta cambian de lado.
   const buildDoor = (id, label, pegNear0) => {
-    const pegOffset = EDGE_MARGIN + rh;
+    // El canto exterior de la mitad está a g de la cara del lateral, así que
+    // la espiga queda g más cerca de ese canto que el agujero de la pared.
+    const pegOffset = EDGE_MARGIN + rh - g;
     const pegCenter = pegNear0 ? pegOffset : doorWidth - pegOffset;
     const pegStart = pegCenter - ps / 2;
     const pegEnd = pegCenter + ps / 2;
-    const tongueHalfWidth = hw / 2;
+    // El canto interior de la mitad ya está g antes del centro; la lengüeta
+    // deja otro g contra el borde de la muesca.
+    const tongueHalfWidth = hw / 2 - 2 * g;
     // El extremo de la lengüeta que NO llega al propio canto de la mitad
     // (el otro extremo SÍ llega, a x=0 o x=doorWidth exactos).
     const tongueInner = pegNear0 ? doorWidth - tongueHalfWidth : tongueHalfWidth;
+    const D = doorDepth;
 
     const points = pegNear0
       ? [
         { x: 0, y: 0 },
-        { x: pegStart, y: 0 }, { x: pegStart, y: -ps }, { x: pegEnd, y: -ps }, { x: pegEnd, y: 0 },
-        { x: tongueInner, y: 0 }, { x: tongueInner, y: -hd }, { x: doorWidth, y: -hd },
-        { x: doorWidth, y: spanY + hd },
-        { x: tongueInner, y: spanY + hd }, { x: tongueInner, y: spanY },
-        { x: pegEnd, y: spanY }, { x: pegEnd, y: spanY + ps }, { x: pegStart, y: spanY + ps }, { x: pegStart, y: spanY },
-        { x: 0, y: spanY },
+        { x: pegStart, y: 0 }, { x: pegStart, y: -pegOut }, { x: pegEnd, y: -pegOut }, { x: pegEnd, y: 0 },
+        { x: tongueInner, y: 0 }, { x: tongueInner, y: -tongueOut }, { x: doorWidth, y: -tongueOut },
+        { x: doorWidth, y: D + tongueOut },
+        { x: tongueInner, y: D + tongueOut }, { x: tongueInner, y: D },
+        { x: pegEnd, y: D }, { x: pegEnd, y: D + pegOut }, { x: pegStart, y: D + pegOut }, { x: pegStart, y: D },
+        { x: 0, y: D },
       ]
       : [
-        { x: 0, y: -hd },
-        { x: tongueInner, y: -hd }, { x: tongueInner, y: 0 },
-        { x: pegStart, y: 0 }, { x: pegStart, y: -ps }, { x: pegEnd, y: -ps }, { x: pegEnd, y: 0 },
+        { x: 0, y: -tongueOut },
+        { x: tongueInner, y: -tongueOut }, { x: tongueInner, y: 0 },
+        { x: pegStart, y: 0 }, { x: pegStart, y: -pegOut }, { x: pegEnd, y: -pegOut }, { x: pegEnd, y: 0 },
         { x: doorWidth, y: 0 },
-        { x: doorWidth, y: spanY },
-        { x: pegEnd, y: spanY }, { x: pegEnd, y: spanY + ps }, { x: pegStart, y: spanY + ps }, { x: pegStart, y: spanY },
-        { x: tongueInner, y: spanY }, { x: tongueInner, y: spanY + hd },
-        { x: 0, y: spanY + hd },
+        { x: doorWidth, y: D },
+        { x: pegEnd, y: D }, { x: pegEnd, y: D + pegOut }, { x: pegStart, y: D + pegOut }, { x: pegStart, y: D },
+        { x: tongueInner, y: D }, { x: tongueInner, y: D + tongueOut },
+        { x: 0, y: D + tongueOut },
       ];
 
     return {
-      id, label, width: doorWidth, height: spanY,
+      id, label, width: doorWidth, height: D,
       edges: {
         top: { gender: 'plain' }, bottom: { gender: 'plain' },
         left: { gender: 'plain' }, right: { gender: 'plain' },
@@ -284,7 +299,8 @@ function validate({
   // chequeo distinto, sobre la pared) sino que quede sitio en la propia
   // mitad para la espiga (radio em+rh, más medio lado ps/2) y la lengüeta
   // (medio ancho hw/2) sin superponerse.
-  if (doorWidth <= 0 || (EDGE_MARGIN + rh + ps / 2) >= (doorWidth - hw / 2)) {
+  const g = LID_SIDE_GAP;
+  if (doorWidth <= 0 || hw / 2 - 2 * g <= 0 || (EDGE_MARGIN + rh - g + ps / 2) >= (doorWidth - (hw / 2 - 2 * g))) {
     errors.push(`El material de ${t} mm es demasiado grueso, o la manija demasiado ancha, para una caja de ${Lo} mm de largo: la espiga y la lengüeta de cada mitad de la tapa se pisarían.`);
   }
   // Cada pared (frontal y trasera) lleva dos postes cerca de sus extremos y
