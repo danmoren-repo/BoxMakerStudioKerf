@@ -168,6 +168,9 @@ export function buildHingedBox(params) {
   // fondo y sostiene la tapa a ras.
   const handleW = hw - 2 * g;
   const handleOut = hd + g;
+  // Igual que en la bisagra doble: un radio mayor que media punta cruza los
+  // dos arcos entre sí y rompe el contorno, así que se acota a la manija.
+  const handleRadius = Math.min(hr, handleW / 2, handleOut / 2);
   const lengthDividers = Number.isFinite(params.lengthDividers) ? params.lengthDividers : 0;
   const heightDividers = Number.isFinite(params.heightDividers) ? params.heightDividers : 0;
 
@@ -292,7 +295,7 @@ export function buildHingedBox(params) {
   const lidWithPegs = () => {
     const lidHandleStart = handleStart + g - lidX0;
     const handle = roundedTabTip({
-      x: lidHandleStart, width: handleW, baseY: 0, tipY: -handleOut, radius: hr,
+      x: lidHandleStart, width: handleW, baseY: 0, tipY: -handleOut, radius: handleRadius,
     });
     // Rectángulo lidW × lidD en sentido horario: manija injertada en el canto
     // delantero (y = 0), espiga derecha injertada en el canto derecho

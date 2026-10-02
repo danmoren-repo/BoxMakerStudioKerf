@@ -1057,6 +1057,14 @@
       assert(hinged.warnings.length === 0, `la caja canónica no debería avisar nada: ${hinged.warnings.join(' | ')}`);
     });
 
+    check('bisagra: un radio de manija exagerado se acota y no cruza el contorno', () => {
+      for (const handleCornerRadius of [5, 20, 100]) {
+        const r = buildHingedBox({ ...HINGED, handleCornerRadius });
+        const lid = r.panels.find((p) => p.id === 'lid');
+        assertSimplePolygon(lid.points, `tapa con radio ${handleCornerRadius}`);
+      }
+    });
+
     // --- Tapa con bisagra doble --------------------------------------------
 
     const HINGED_DOUBLE = {
