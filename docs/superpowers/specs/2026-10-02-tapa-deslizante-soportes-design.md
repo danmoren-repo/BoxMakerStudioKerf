@@ -215,15 +215,16 @@ Se reusan `lidThickness` (vía `lidThicknessFor` de `sliding-box.js`) y
 `slideClearance`.
 
 `buildSlidingSupportBox(params)` devuelve la misma forma que
-`buildSlidingBox` (`panels, joints, errors, warnings, outer, inner,
-realOuterHeight, lid`), sin `groove`, y con:
+`buildSlidingBox` (`panels, joints, errors, warnings, outer, inner, lid`),
+sin `groove` ni `realOuterHeight`, y con:
 
 ```
 supports: { width: spanY, height: supportHeight, count: 2 }
 window:   { width: spanX − 2m, depth: spanY − 2m, frame: m }
 ```
 
-`realOuterHeight = Ho`.
+Sin `realOuterHeight`: el alto exterior ya es el real (nada sobresale por
+encima de TOP), y así la interfaz no muestra "alto real con reborde".
 
 ## Interfaz
 
