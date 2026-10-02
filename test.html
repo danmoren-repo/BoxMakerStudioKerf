@@ -20,10 +20,14 @@
 
   <script type="module">
     import { computeSegments, edgeProfile, jointIntervals } from './js/core/finger-joint.js';
-    import { panelOutline, pocketFeature, holeFeature } from './js/core/panel.js';
+    import { panelOutline, pocketFeature, holeFeature, rectHoleFeature } from './js/core/panel.js';
     import { boundingBox } from './js/core/geometry.js';
     import { buildBox, autoTabWidth } from './js/boxes/simple-box.js';
     import { buildSlidingBox } from './js/boxes/sliding-box.js';
+    import {
+      buildSlidingSupportBox, slidingSupportHeights, windowFrameFor,
+      autoTabWidth as supportAutoTabWidth,
+    } from './js/boxes/sliding-support-box.js';
     import { buildHingedBox } from './js/boxes/hinged-box.js';
     import { buildHingedDoubleBox } from './js/boxes/hinged-double-box.js';
     import { renderBox } from './js/render/svg-render.js';
@@ -57,9 +61,20 @@
       dimensionMode: 'outer', lidType: 'sliding',
       slideClearance: 0.2,
     };
+    // Caja de referencia del método "soportes pegados" (spec, "Ejemplo de
+    // referencia"): 100 × 150 × 80, plywood de 3 mm, kerf calibrado de Dani.
+    const SUPPORTS = {
+      length: 100, width: 150, height: 80,
+      thickness: 3, kerf: 0.16, tabWidth: 12,
+      dimensionMode: 'outer', lidType: 'sliding', slideMethod: 'supports',
+      slideClearance: 0.2,
+    };
     // Los checks de geometría corren sobre los tres tipos de tapa, y cada tipo
     // lo arma un módulo distinto.
-    const buildAny = (cfg) => (cfg.lidType === 'sliding' ? buildSlidingBox(cfg) : buildBox(cfg));
+    const buildAny = (cfg) => {
+      if (cfg.lidType === 'sliding' && cfg.slideMethod === 'supports') return buildSlidingSupportBox(cfg);
+      return cfg.lidType === 'sliding' ? buildSlidingBox(cfg) : buildBox(cfg);
+    };
     const box = buildBox(BASE);
     const panel = (id) => box.panels.find((p) => p.id === id);
     const t = BASE.thickness;
@@ -138,7 +153,7 @@
     });
 
     check('ninguna pieza tiene material más fino que el kerf (nada incortable)', () => {
-      for (const cfg of [BASE, FLAT, SLIDE, { ...SLIDE, thickness: 6, lidThickness: 3, tabWidth: 18 }]) {
+      for (const cfg of [BASE, FLAT, SLIDE, { ...SLIDE, thickness: 6, lidThickness: 3, tabWidth: 18 }, SUPPORTS, { ...SUPPORTS, thickness: 6, lidThickness: 3, tabWidth: 18 }]) {
         for (const p of buildAny(cfg).panels) {
           for (let i = 0; i < p.points.length; i++) {
             const a = p.points[i];
@@ -161,6 +176,9 @@
         SLIDE,
         { ...SLIDE, kerf: 0.4, tabWidth: 25, length: 250, width: 200, height: 100 },
         { ...SLIDE, thickness: 6, lidThickness: 3, tabWidth: 18 },
+        SUPPORTS,
+        { ...SUPPORTS, kerf: 0.4, tabWidth: 25, length: 250, width: 200, height: 100 },
+        { ...SUPPORTS, thickness: 6, lidThickness: 3, tabWidth: 18 },
       ];
       for (const cfg of configs) {
         const result = buildAny(cfg);
@@ -186,7 +204,8 @@
       // de la profundidad de la ranura. Si eso es menor que el kerf, la esquina
       // se cae al cortar.
       for (const cfg of [BASE, { ...BASE, kerf: 0.4, tabWidth: 25 }, FLAT, { ...FLAT, kerf: 0.4, tabWidth: 25 },
-                         SLIDE, { ...SLIDE, thickness: 6, lidThickness: 3, tabWidth: 18 }]) {
+                         SLIDE, { ...SLIDE, thickness: 6, lidThickness: 3, tabWidth: 18 },
+                         SUPPORTS, { ...SUPPORTS, thickness: 6, lidThickness: 3, tabWidth: 18 }]) {
         const result = buildAny(cfg);
         if (result.errors.length > 0) continue;
         for (const p of result.panels) {
@@ -374,6 +393,18 @@
           }
         }
       }
+    });
+
+    check('rectHoleFeature: agujero rectangular, kerf/2 hacia adentro por lado', () => {
+      const f = rectHoleFeature({ id: 'w', x: 10, y: 20, width: 79, height: 129, kerf: 0.16 });
+      assert(f.kind === 'hole' && f.layer === 'cut', `kind/layer ${f.kind}/${f.layer}`);
+      assert(f.points.length === 4, `${f.points.length} puntos, esperaba 4`);
+      const bb = boundingBox(f.points);
+      assert(near(bb.minX, 10.08) && near(bb.minY, 20.08), `origen ${bb.minX},${bb.minY}`);
+      assert(near(bb.width, 78.84) && near(bb.height, 128.84), `tamaño ${bb.width} × ${bb.height}`);
+      const plain = rectHoleFeature({ id: 'w', x: 0, y: 0, width: 5, height: 6 });
+      const pb = boundingBox(plain.points);
+      assert(near(pb.width, 5) && near(pb.height, 6), 'sin kerf debe quedar nominal');
     });
 
     check('tapa plana: la tapa es un rectángulo liso del tamaño exterior', () => {
@@ -754,6 +785,240 @@
       }
       assert(slide.warnings.length === 0,
         `la caja canónica no debería avisar nada: ${slide.warnings.join(' | ')}`);
+    });
+
+    // --- Tapa deslizante con soportes pegados --------------------------------
+
+    const sup = buildSlidingSupportBox(SUPPORTS);
+    const supp = (id) => sup.panels.find((p) => p.id === id);
+
+    check('soportes: nueve piezas y ningún error en la caja de referencia', () => {
+      assert(sup.errors.length === 0, sup.errors.join(' | '));
+      const ids = sup.panels.map((p) => p.id).join(',');
+      assert(ids === 'bottom,front,left,top,back,right,support-1,support-2,lid', `piezas: ${ids}`);
+      assert(supp('support-1').label === 'SUPPORT 1' && supp('support-2').label === 'SUPPORT 2', 'etiquetas de soportes');
+    });
+
+    check('soportes: medidas del ejemplo de referencia (spec)', () => {
+      const H = slidingSupportHeights(SUPPORTS);
+      assert(near(H.m, 7.5), `marco ${H.m}`);
+      assert(near(H.railTop, 73.8) && near(H.frontHeight, 73.8), `canto del riel ${H.railTop}`);
+      assert(near(H.supportHeight, 70.8), `alto de soporte ${H.supportHeight}`);
+      const dims = (id) => [supp(id).width, supp(id).height];
+      const expect = {
+        bottom: [94, 144], front: [100, 73.8], left: [144, 80], right: [144, 80],
+        back: [100, 80], top: [94, 147], 'support-1': [144, 70.8], 'support-2': [144, 70.8], lid: [93.6, 146.8],
+      };
+      for (const [id, [w, h]] of Object.entries(expect)) {
+        const [pw, ph] = dims(id);
+        assert(near(pw, w) && near(ph, h), `${id}: ${pw} × ${ph}, esperaba ${w} × ${h}`);
+      }
+      for (const id of ['support-1', 'support-2', 'lid']) {
+        assert(supp(id).points.length === 4, `${id}: ${supp(id).points.length} puntos, va liso`);
+      }
+      assert(near(sup.window.width, 79) && near(sup.window.depth, 129) && near(sup.window.frame, 7.5),
+        `ventana ${sup.window.width} × ${sup.window.depth}, marco ${sup.window.frame}`);
+      assert(near(sup.lid.width, 93.6) && near(sup.lid.depth, 146.8) && near(sup.lid.thickness, 3), 'resumen de tapa');
+      assert(near(sup.supports.width, 144) && near(sup.supports.height, 70.8) && sup.supports.count === 2, 'resumen de soportes');
+      assert(near(sup.outer.length, 100) && near(sup.outer.width, 150) && near(sup.outer.height, 80), 'exterior');
+      assert(near(sup.inner.length, 88) && near(sup.inner.width, 144) && near(sup.inner.height, 70.8),
+        `interior ${sup.inner.length} × ${sup.inner.width} × ${sup.inner.height}`);
+      assert(sup.realOuterHeight === undefined, 'no lleva alto real con reborde');
+      assert(sup.groove === undefined, 'no lleva canal');
+    });
+
+    check('soportes: ventana de TOP centrada en el marco, compensada de kerf', () => {
+      const top = supp('top');
+      assert(top.features.length === 1, `${top.features.length} features en TOP`);
+      const w = top.features[0];
+      assert(w.id === 'window' && w.kind === 'hole' && w.layer === 'cut', `${w.id}/${w.kind}/${w.layer}`);
+      const bb = boundingBox(w.points);
+      // x desde la cara interior de LEFT; y desde el canto delantero de TOP,
+      // que sobresale un grosor (3) por encima de FRONT.
+      assert(near(bb.minX, 7.5 + 0.08) && near(bb.minY, 3 + 7.5 + 0.08), `origen ${bb.minX},${bb.minY}`);
+      assert(near(bb.width, 79 - 0.16) && near(bb.height, 129 - 0.16), `tamaño ${bb.width} × ${bb.height}`);
+      for (const id of ['bottom', 'front', 'left', 'back', 'right', 'support-1', 'support-2', 'lid']) {
+        assert((supp(id).features ?? []).length === 0, `${id} no debería llevar features (nada se graba)`);
+      }
+    });
+
+    check('soportes: cada par de aristas macho/hembra encaja', () => {
+      // Igual que en el canal grabado: en los laterales la arista 'left' de
+      // LEFT y la 'right' de RIGHT miran al frente.
+      const pairs = [
+        ['front', 'left', 'left', 'left'],
+        ['front', 'right', 'right', 'right'],
+        ['back', 'left', 'left', 'right'],
+        ['back', 'right', 'right', 'left'],
+        ['front', 'bottom', 'bottom', 'top'],
+        ['back', 'bottom', 'bottom', 'bottom'],
+        ['left', 'bottom', 'bottom', 'left'],
+        ['right', 'bottom', 'bottom', 'right'],
+        ['back', 'top', 'top', 'bottom'],
+        ['left', 'top', 'top', 'left'],
+        ['right', 'top', 'top', 'right'],
+      ];
+      const globalStart = (panel, edgeKey, spec) => {
+        const start = spec.jointStart ?? 0;
+        const own = (edgeKey === 'left' || edgeKey === 'right') ? panel.height : panel.width;
+        return (edgeKey === 'left' || edgeKey === 'top') ? start : own - start - spec.jointSpan;
+      };
+      for (const [femaleId, femaleEdge, maleId, maleEdge] of pairs) {
+        const female = supp(femaleId).edges[femaleEdge];
+        const male = supp(maleId).edges[maleEdge];
+        const pair = `${femaleId}.${femaleEdge} ↔ ${maleId}.${maleEdge}`;
+        assert(female.gender === 'female', `${pair}: ${femaleId} no es hembra`);
+        assert(male.gender === 'male', `${pair}: ${maleId} no es macho`);
+        const fSpan = female.jointSpan ?? null;
+        const mSpan = male.jointSpan ?? null;
+        if (fSpan !== null && mSpan !== null) {
+          assert(near(fSpan, mSpan), `${pair}: tramos distintos, ${fSpan} vs ${mSpan}`);
+          const fs = globalStart(supp(femaleId), femaleEdge, female);
+          const ms = globalStart(supp(maleId), maleEdge, male);
+          assert(near(fs, ms), `${pair}: arranques distintos en coordenada global, ${fs} vs ${ms}`);
+        }
+        assert((female.startsSolid ?? false) === (male.startsSolid ?? false), `${pair}: fases distintas`);
+      }
+      // TOP ↔ laterales: el lateral es hembra en todo su ancho (144); TOP
+      // cubre esos 144 y deja liso el grosor que sobresale sobre FRONT.
+      const top = supp('top');
+      assert(near(top.edges.left.jointSpan, 144) && near(top.edges.right.jointSpan, 144), 'tramo de TOP a los lados');
+      assert(near(top.edges.left.jointStart ?? 0, 0), `TOP.left arranca en ${top.edges.left.jointStart} (desde el fondo)`);
+      assert(near(top.edges.right.jointStart, 3), `TOP.right arranca en ${top.edges.right.jointStart} (desde el frente)`);
+      assert(top.edges.top.gender === 'plain', 'el canto delantero de TOP va liso');
+      assert(supp('front').edges.top.gender === 'plain', 'el canto superior de FRONT va liso');
+      // Lateral más alto que FRONT: la junta del frente es más corta que la del fondo.
+      const left = supp('left');
+      assert(near(left.edges.left.jointSpan, 73.8 - 6), `junta del frente ${left.edges.left.jointSpan}`);
+      assert(near(left.edges.right.jointSpan, 80 - 6), `junta del fondo ${left.edges.right.jointSpan}`);
+    });
+
+    check('soportes: contornos simples, cerrados y sin NaN', () => {
+      for (const p of sup.panels) {
+        assertSimplePolygon(p.points, `${p.id} (soportes)`);
+        for (const pt of p.points) assert(Number.isFinite(pt.x) && Number.isFinite(pt.y), `${p.id}: NaN`);
+      }
+      assertSimplePolygon(supp('top').features[0].points, 'ventana de TOP');
+    });
+
+    check('soportes: modo interiores mide el espacio entre soportes', () => {
+      const byInner = buildSlidingSupportBox({
+        ...SUPPORTS, dimensionMode: 'inner', length: 88, width: 144, height: 70.8,
+      });
+      assert(byInner.errors.length === 0, byInner.errors.join(' | '));
+      assert(near(byInner.outer.length, 100) && near(byInner.outer.width, 150) && near(byInner.outer.height, 80),
+        `exterior ${byInner.outer.length} × ${byInner.outer.width} × ${byInner.outer.height}`);
+      assert(near(byInner.inner.length, 88) && near(byInner.inner.width, 144) && near(byInner.inner.height, 70.8),
+        `interior ${byInner.inner.length} × ${byInner.inner.width} × ${byInner.inner.height}`);
+      // Con tapa de otro grosor, el alto exterior crece lo que crece la tapa.
+      const thickLid = buildSlidingSupportBox({
+        ...SUPPORTS, dimensionMode: 'inner', length: 88, width: 144, height: 70.8, lidThickness: 5,
+      });
+      assert(near(thickLid.outer.height, 82), `con tapa de 5: alto exterior ${thickLid.outer.height}`);
+    });
+
+    check('soportes: marco automático y manual, ancho de espiga automático', () => {
+      assert(near(windowFrameFor({ thickness: 3 }), 7.5), 'auto 3 mm');
+      assert(near(windowFrameFor({ thickness: 6 }), 10.5), 'auto 6 mm');
+      assert(near(windowFrameFor({ thickness: 3, windowFrame: 5, windowFrameAuto: false }), 5), 'manual');
+      assert(Number.isNaN(windowFrameFor({ thickness: 3, windowFrame: NaN, windowFrameAuto: false })), 'manual vacío no cae al automático');
+      assert(near(windowFrameFor({ thickness: 3, windowFrame: 5 }), 7.5), 'con la casilla marcada manda el automático');
+      const manual = buildSlidingSupportBox({ ...SUPPORTS, windowFrame: 10, windowFrameAuto: false });
+      assert(near(manual.window.width, 74) && near(manual.window.depth, 124), `ventana manual ${manual.window.width} × ${manual.window.depth}`);
+      // El tramo más corto es la junta del frente (73.8 − 6 = 67.8): 3t = 9 manda.
+      assert(near(supportAutoTabWidth(SUPPORTS), 9), `espiga automática ${supportAutoTabWidth(SUPPORTS)}`);
+    });
+
+    check('soportes: los estantes usan el ancho entre soportes', () => {
+      const box = buildSlidingSupportBox({ ...SUPPORTS, lengthDividers: 1, heightDividers: 1 });
+      assert(box.errors.length === 0, box.errors.join(' | '));
+      assert(box.panels.length === 11, `${box.panels.length} piezas, esperaba 11 (9 + 1 + 1)`);
+      const shelf = boundingBox(box.panels.find((p) => p.id === 'divider-h1').points);
+      assert(near(shelf.width, 88) && near(shelf.height, 144), `estante ${shelf.width} × ${shelf.height}`);
+      const wall = boundingBox(box.panels.find((p) => p.id === 'divider-l1').points);
+      assert(near(wall.width, 144) && near(wall.height, 70.8), `divisor de largo ${wall.width} × ${wall.height}`);
+    });
+
+    check('soportes: el canal grabado no cambia (regresión)', () => {
+      const before = JSON.stringify(buildSlidingBox(SLIDE));
+      const explicit = JSON.stringify(buildSlidingBox({ ...SLIDE, slideMethod: 'groove' }));
+      assert(before === explicit, 'slideMethod "groove" cambió la caja del canal grabado');
+      assert(slide.groove && slide.panels.length === 6, 'la caja del canal grabado sigue con canal y 6 piezas');
+    });
+
+    check('soportes: errores que bloquean la generación', () => {
+      const cases = [
+        ['holgura igual al grosor: la tapa no apoya', { slideClearance: 3 }, 'soportes'],
+        ['marco más chico que la holgura', { windowFrame: 0.1, windowFrameAuto: false }, 'caería'],
+        ['marco negativo', { windowFrame: -2, windowFrameAuto: false }, 'caería'],
+        ['marco que se come la ventana', { windowFrame: 50, windowFrameAuto: false }, 'se come la ventana'],
+        ['ventana más angosta que el kerf', { windowFrame: 46.97, windowFrameAuto: false }, 'se come la ventana'],
+        ['marco manual vacío', { windowFrame: NaN, windowFrameAuto: false }, 'número'],
+        ['sin espacio entre soportes', { length: 12 }, 'entre los soportes'],
+        ['sin espacio entre frente y fondo', { width: 6 }, 'frente y el fondo'],
+        ['caja más baja que tapa y soportes', { height: 8 }, 'demasiado baja'],
+        ['sin pared para las espigas del frente', { height: 11 }, 'espigas'],
+        ['grosor de tapa inválido', { lidThickness: -1 }, 'tapa'],
+        ['holgura negativa', { slideClearance: -0.1 }, 'negativa'],
+      ];
+      for (const [name, override, fragment] of cases) {
+        const r = buildSlidingSupportBox({ ...SUPPORTS, ...override });
+        assert(r.errors.length > 0, `${name}: no produjo error`);
+        assert(r.panels.length === 0, `${name}: devolvió piezas pese al error`);
+        assert(r.errors.some((e) => e.toLowerCase().includes(fragment)),
+          `${name}: esperaba un error con "${fragment}", salió: ${r.errors.join(' | ')}`);
+      }
+      // Varios problemas a la vez se muestran juntos, no de uno en uno.
+      const both = buildSlidingSupportBox({ ...SUPPORTS, slideClearance: 3, windowFrame: 50, windowFrameAuto: false });
+      assert(both.errors.length >= 2, `esperaba 2+ errores juntos, salió: ${both.errors.join(' | ')}`);
+    });
+
+    check('soportes: avisos que no bloquean', () => {
+      const cases = [
+        ['holgura en 0', { slideClearance: 0 }, 'presión'],
+        ['holgura grande', { slideClearance: 0.8 }, 'bailar'],
+        ['tramo delantero del marco angosto para su largo', { length: 300 }, 'quebrarse'],
+        ['marco que sujeta poco la tapa', { windowFrame: 2, windowFrameAuto: false }, 'por lado'],
+        ['tapa que pandea', { length: 400, width: 400, tabWidth: 24 }, 'pandear'],
+      ];
+      for (const [name, override, fragment] of cases) {
+        const r = buildSlidingSupportBox({ ...SUPPORTS, ...override });
+        assert(r.errors.length === 0, `${name}: debía generar, pero dio ${r.errors.join(' | ')}`);
+        assert(r.warnings.some((w) => w.toLowerCase().includes(fragment)),
+          `${name}: esperaba un aviso con "${fragment}", salió: ${r.warnings.join(' | ') || '(ninguno)'}`);
+      }
+      assert(sup.warnings.length === 0, `la caja de referencia no debería avisar nada: ${sup.warnings.join(' | ')}`);
+    });
+
+    check('soportes: barrido de parámetros, nada explota ni devuelve NaN', () => {
+      let built = 0;
+      for (const thickness of [1.5, 3, 6]) {
+        for (const kerf of [0, 0.16, 0.3]) {
+          for (const dims of [[40, 40, 40], [100, 150, 80], [300, 200, 120]]) {
+            for (const frame of [undefined, 2, 20]) {
+              for (const dimensionMode of ['outer', 'inner']) {
+                const base = {
+                  length: dims[0], width: dims[1], height: dims[2], thickness, kerf, dimensionMode,
+                  lidType: 'sliding', slideMethod: 'supports', slideClearance: 0.2,
+                  ...(frame === undefined ? {} : { windowFrame: frame, windowFrameAuto: false }),
+                };
+                const r = buildSlidingSupportBox({ ...base, tabWidth: supportAutoTabWidth(base) });
+                const label = `t=${thickness} k=${kerf} dims=${dims} marco=${frame ?? 'auto'} ${dimensionMode}`;
+                for (const m of [...r.errors, ...r.warnings]) {
+                  assert(!/NaN|undefined|Infinity/.test(m), `${label}: mensaje roto "${m}"`);
+                }
+                if (r.errors.length > 0) continue;
+                built += 1;
+                for (const p of r.panels) {
+                  assertSimplePolygon(p.points, `${p.id} ${label}`);
+                  for (const f of p.features ?? []) assertSimplePolygon(f.points, `${p.id}.${f.id} ${label}`);
+                }
+              }
+            }
+          }
+        }
+      }
+      assert(built > 20, `sólo ${built} combinaciones generaron piezas: el barrido no está probando nada`);
     });
 
     const HINGED = {

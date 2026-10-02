@@ -70,3 +70,27 @@ export function holeFeature({ id, cx, cy, diameter, kerf = 0, layer = 'cut', seg
   }
   return { id, layer, kind: 'hole', points };
 }
+
+// Un agujero rectangular pasante (la ventana de TOP en la tapa deslizante con
+// soportes). x, y, width, height son la medida nominal: la que debe tener el
+// agujero ya cortado. El haz se come kerf/2 a cada lado de la línea, y en un
+// agujero lo que se pierde es el lado de afuera, así que la línea va kerf/2
+// hacia ADENTRO por cada lado.
+export function rectHoleFeature({ id, x, y, width, height, kerf = 0, layer = 'cut' }) {
+  const half = kerf / 2;
+  const x0 = x + half;
+  const y0 = y + half;
+  const x1 = x + width - half;
+  const y1 = y + height - half;
+  return {
+    id,
+    layer,
+    kind: 'hole',
+    points: [
+      { x: x0, y: y0 },
+      { x: x1, y: y0 },
+      { x: x1, y: y1 },
+      { x: x0, y: y1 },
+    ],
+  };
+}
