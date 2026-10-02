@@ -73,8 +73,9 @@
               "Con espigas": la tapa encaja dentro como el resto de las piezas.
               "Plana": un rectángulo liso que se apoya encima de las paredes, que se
               acortan un grosor para que el alto total siga siendo el que pediste.
-              "Deslizante": la tapa corre dentro de un canal vaciado en laterales y
-              fondo, y entra por el frente, que queda más bajo.
+              "Deslizante": la tapa entra por el frente, que queda más bajo, y corre
+              por un canal grabado en las paredes o sobre dos soportes pegados por
+              dentro (elige el método abajo).
               "Con bisagra": la tapa queda unida por una bisagra del mismo material —
               una espiga cuadrada maciza sale de cada canto lateral, cerca de la
               esquina trasera, y encaja en un agujero de su pared. Las cuatro
@@ -96,6 +97,24 @@
           </div>
 
           <div class="field sliding-fields" id="slidingFields" hidden>
+            <div class="field field-radio-group">
+              <span class="field-label">Método del riel</span>
+              <div class="radio-option">
+                <input type="radio" id="slide-groove" name="slideMethod" value="groove" checked>
+                <label for="slide-groove">Canal grabado</label>
+              </div>
+              <div class="radio-option">
+                <input type="radio" id="slide-supports" name="slideMethod" value="supports">
+                <label for="slide-supports">Soportes pegados</label>
+              </div>
+              <p class="help">
+                "Canal grabado": la tapa corre en un canal vaciado en laterales y fondo.
+                "Soportes pegados": la caja queda cerrada como la de espigas, con una
+                ventana en TOP; dos placas (SUPPORT 1 y 2) se pegan por dentro de los
+                laterales, apoyadas en la base, y la tapa corre sobre ellas, sujeta por
+                el marco de la ventana. No se graba nada: mejor para material delgado.
+              </p>
+            </div>
             <div class="field">
               <label for="lidThickness">Grosor de la tapa <span class="unit">mm</span></label>
               <input type="number" id="lidThickness" name="lidThickness" value="3" step="0.1" min="0.01" inputmode="decimal">
@@ -105,7 +124,7 @@
               </div>
             </div>
 
-            <div class="field">
+            <div class="field" id="grooveField">
               <label for="grooveDepth">Profundidad del canal <span class="unit">mm</span></label>
               <input type="number" id="grooveDepth" name="grooveDepth" value="1.5" step="0.1" min="0.01" inputmode="decimal">
               <div class="field-checkbox">
@@ -114,13 +133,27 @@
               </div>
             </div>
 
+            <div class="field" id="windowFrameField" hidden>
+              <label for="windowFrame">Marco de la ventana <span class="unit">mm</span></label>
+              <input type="number" id="windowFrame" name="windowFrame" value="7.5" step="0.1" min="0.01" inputmode="decimal">
+              <div class="field-checkbox">
+                <input type="checkbox" id="windowFrameAuto" name="windowFrameAuto" checked>
+                <label for="windowFrameAuto">Automático (grosor + 4.5 mm)</label>
+              </div>
+              <p class="help">
+                Cuánto material de TOP queda alrededor de la ventana, medido desde la
+                cara interior de cada pared. Es lo que sujeta la tapa por arriba.
+              </p>
+            </div>
+
             <div class="field">
               <label for="slideClearance">Holgura de deslizamiento <span class="unit">mm</span></label>
               <input type="number" id="slideClearance" name="slideClearance" value="0.2" step="0.05" min="0" inputmode="decimal">
               <p class="help">
-                Cuánto más alto se dibuja el canal que la tapa, para que corra sin
-                trabarse. Es aparte del kerf: el kerf compensa un corte pasante y el
-                canal es un vaciado. Calíbrala con un recorte antes de cortar la caja.
+                El juego que se deja para que la tapa corra sin trabarse: con canal
+                grabado, cuánto más alto es el canal que la tapa; con soportes, el
+                espacio entre la tapa y TOP, y a cada lado contra los laterales. Es
+                aparte del kerf. Calíbrala con un recorte antes de cortar la caja.
               </p>
             </div>
           </div>

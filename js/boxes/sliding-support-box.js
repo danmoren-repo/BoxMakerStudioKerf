@@ -291,7 +291,7 @@ function validate({
     ],
     tabWidth,
     kerf,
- ));
+  ));
   return errors;
 }
 
