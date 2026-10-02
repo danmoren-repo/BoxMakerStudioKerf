@@ -921,6 +921,7 @@
       assert(near(windowFrameFor({ thickness: 3 }), 7.5), 'auto 3 mm');
       assert(near(windowFrameFor({ thickness: 6 }), 10.5), 'auto 6 mm');
       assert(near(windowFrameFor({ thickness: 3, windowFrame: 5, windowFrameAuto: false }), 5), 'manual');
+      assert(Number.isNaN(windowFrameFor({ thickness: 3, windowFrame: NaN, windowFrameAuto: false })), 'manual vacío no cae al automático');
       assert(near(windowFrameFor({ thickness: 3, windowFrame: 5 }), 7.5), 'con la casilla marcada manda el automático');
       const manual = buildSlidingSupportBox({ ...SUPPORTS, windowFrame: 10, windowFrameAuto: false });
       assert(near(manual.window.width, 74) && near(manual.window.depth, 124), `ventana manual ${manual.window.width} × ${manual.window.depth}`);
@@ -951,7 +952,10 @@
         ['marco más chico que la holgura', { windowFrame: 0.1, windowFrameAuto: false }, 'caería'],
         ['marco negativo', { windowFrame: -2, windowFrameAuto: false }, 'caería'],
         ['marco que se come la ventana', { windowFrame: 50, windowFrameAuto: false }, 'se come la ventana'],
+        ['ventana más angosta que el kerf', { windowFrame: 46.97, windowFrameAuto: false }, 'se come la ventana'],
+        ['marco manual vacío', { windowFrame: NaN, windowFrameAuto: false }, 'número'],
         ['sin espacio entre soportes', { length: 12 }, 'entre los soportes'],
+        ['sin espacio entre frente y fondo', { width: 6 }, 'frente y el fondo'],
         ['caja más baja que tapa y soportes', { height: 8 }, 'demasiado baja'],
         ['sin pared para las espigas del frente', { height: 11 }, 'espigas'],
         ['grosor de tapa inválido', { lidThickness: -1 }, 'tapa'],
@@ -974,6 +978,7 @@
         ['holgura en 0', { slideClearance: 0 }, 'presión'],
         ['holgura grande', { slideClearance: 0.8 }, 'bailar'],
         ['tramo delantero del marco angosto para su largo', { length: 300 }, 'quebrarse'],
+        ['marco que sujeta poco la tapa', { windowFrame: 2, windowFrameAuto: false }, 'por lado'],
         ['tapa que pandea', { length: 400, width: 400, tabWidth: 24 }, 'pandear'],
       ];
       for (const [name, override, fragment] of cases) {

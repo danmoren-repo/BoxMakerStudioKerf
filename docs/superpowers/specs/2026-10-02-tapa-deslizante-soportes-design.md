@@ -158,8 +158,8 @@ delantero de TOP):
 - `x` de `m` a `spanX − m` → ancho `spanX − 2m`
 - `y` de `t + m` a `t + spanY − m` → fondo `spanY − 2m`
 
-Es un corte pasante (`kind: 'hole'`, capa de corte), compensado de kerf
-como `holeFeature` / `crossHoleFeature`: se dibuja `kerf/2` más chico por
+Es un corte pasante (`kind: 'hole'`, capa de corte) que usa el nuevo
+`rectHoleFeature` de `js/core/panel.js`: se dibuja `kerf/2` más chico por
 lado para que, cortado, mida la medida nominal.
 
 Marco automático: `m = t + 4.5`. Manual: el valor escrito, bueno o malo
@@ -251,7 +251,7 @@ encima de TOP), y así la interfaz no muestra "alto real con reborde".
 2. Grosor de tapa ≤ 0; holgura negativa.
 3. `h ≥ t`: la tapa ya no se apoya sobre los soportes.
 4. `m − h ≤ 0`: el marco no sujeta la tapa; se caería por la ventana.
-5. `spanX − 2m ≤ 0` o `spanY − 2m ≤ 0`: el marco se come la ventana.
+5. `spanX − 2m ≤ kerf` o `spanY − 2m ≤ kerf`: el marco se come la ventana.
 6. `supportHeight ≤ 0` o `spanZFront ≤ 0`: la caja es demasiado baja para
    su tapa, o FRONT no deja sitio para sus espigas.
 7. `spanX ≤ 2t` (no queda espacio entre soportes) o `spanY ≤ 0`.
@@ -266,10 +266,11 @@ canal grabado.
    ejemplo (10.5 frente a 4.7) no avisa; con una caja de 300 mm de largo
    en 3 mm sí. Texto: el tramo sobre la entrada de la tapa queda sujeto
    sólo por sus puntas y puede quebrarse; sube el marco.
-2. Holgura 0: la tapa entra a presión.
-3. Holgura > 0.5: la tapa baila.
-4. Tapa larga para su grosor (`lado menor / tl > 60`): se pandea.
-5. Avisos comunes de juntas (`commonWarnings`) y de divisores.
+2. Marco que sujeta poco: `m − h < t`.
+3. Holgura 0: la tapa entra a presión.
+4. Holgura > 0.5: la tapa baila.
+5. Tapa larga para su grosor (`lado menor / tl > 60`): se pandea.
+6. Avisos comunes de juntas (`commonWarnings`) y de divisores.
 
 ## Módulos
 

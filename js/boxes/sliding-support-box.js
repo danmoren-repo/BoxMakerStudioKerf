@@ -21,10 +21,10 @@ const FRAME_MARGIN = 4.5;
 const FRONT_BAR_RATIO = 20;
 
 // Automático: grosor del material (lo que ocupa el soporte) + margen. Con la
-// casilla desmarcada manda el valor escrito, bueno o malo: la validación lo
-// juzga en vez de corregirlo a la espalda del usuario.
+// casilla desmarcada manda el valor escrito, incluso si está vacío: la
+// validación debe mostrar el error en vez de corregirlo a la espalda del usuario.
 export function windowFrameFor({ thickness, windowFrame, windowFrameAuto = true }) {
-  if (!windowFrameAuto && Number.isFinite(windowFrame)) return windowFrame;
+  if (!windowFrameAuto) return windowFrame;
   return thickness + FRAME_MARGIN;
 }
 
@@ -262,11 +262,15 @@ function validate({
       `Un marco de ${m} mm con ${h} mm de holgura no sujeta la tapa: se caería por la ventana. Sube el marco.`,
     );
   }
-  if (spanX <= 2 * t || spanY <= 0) {
+  if (spanX <= 2 * t) {
     errors.push(
       `El material de ${t} mm es demasiado grueso para una caja de ${Lo} × ${Wo} mm: no queda espacio entre los soportes.`,
     );
-  } else if (spanX - 2 * m <= 0 || spanY - 2 * m <= 0) {
+  } else if (spanY <= 0) {
+    errors.push(
+      `El material de ${t} mm es demasiado grueso para una caja de ${Wo} mm de ancho: no queda espacio entre el frente y el fondo.`,
+    );
+  } else if (spanX - 2 * m <= kerf || spanY - 2 * m <= kerf) {
     errors.push(
       `Un marco de ${m} mm se come la ventana en una caja de ${Lo} × ${Wo} mm. Baja el marco.`,
     );
@@ -305,6 +309,11 @@ function warningsFor({
   if (frontBar < spanX / FRONT_BAR_RATIO) {
     warnings.push(
       `El tramo del marco sobre la entrada de la tapa mide ${frontBar.toFixed(1)} mm de ancho para ${spanX.toFixed(0)} mm de largo, y sólo lo sujetan sus puntas: puede quebrarse. Sube el marco de la ventana.`,
+    );
+  }
+  if (m - h < t) {
+    warnings.push(
+      `El marco de ${m} mm sujeta la tapa sólo ${(m - h).toFixed(2)} mm por lado, menos que el grosor del material: puede soltarse. Sube el marco de la ventana.`,
     );
   }
   if (h === 0) {
