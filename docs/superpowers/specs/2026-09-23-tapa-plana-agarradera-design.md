@@ -22,8 +22,8 @@ arcos y radios, no solo la forma a ojo) antes de diseñar la versión
 propia. Esa referencia resultó ser:
 
 - Una tapa de dos capas: una exterior (del tamaño de siempre, apoyada
-  sobre las paredes) y un inserto liso pegado por debajo, del tamaño
-  exacto del hueco interno de la caja.
+  sobre las paredes) y un inserto liso pegado por debajo, del tamaño del
+  hueco interno de la caja.
 - Un agujero en forma de cruz cortado cerca del centro de cada capa.
 - Una perilla armada de DOS piezas en forma de domo (medio círculo), cada
   una con un vástago rectangular por debajo, que se encastran entre sí a
@@ -44,7 +44,7 @@ capas — más simple de construir, mismo principio.
 | Alcance | Opción opcional sobre la tapa "Plana" existente, no un tipo de tapa nuevo |
 | Divisores internos del archivo de referencia | Fuera de alcance — se ignoran, quedan para otro feature |
 | Esquinas redondeadas de la tapa/inserto (vistas en la referencia) | Rectas — mismo estilo que el resto de BoxMaker, sin geometría nueva solo por estética |
-| Holgura extra para que el inserto entre en el hueco interno | Ninguna — el inserto mide exactamente `spanX × spanY` (el hueco interno real); el margen natural que deja el kerf al cortar alcanza |
+| Holgura extra para que el inserto entre en el hueco interno | Ninguna — el inserto mide exactamente `spanX × spanY` (el hueco interno real); el margen natural que deja el kerf al cortar alcanza. **Corregido el 2026-10-19:** no alcanza. Los cantos lisos no llevan compensación de kerf, así que ese margen no existe; una caja de 100 × 100 mm de interior salió con el inserto tallado, sin entrar. Ahora el inserto se dibuja con `INSERT_CLEARANCE = 0.5` mm de holgura a cada lado (1 mm menos en cada medida), fija en el código, no calibrable desde la página |
 | Vástago de la perilla | Ancho constante (una sola medida de agujero en cruz para las dos capas), en vez de los dos escalones del original |
 | Assembler de la perilla | Dos piezas en domo que se cruzan a 90° con una ranura de media altura cada una — mismo principio que el original, adaptado al vástago de ancho único |
 
@@ -82,10 +82,12 @@ el material).
   paredes igual que hoy). Con la agarradera activada, se le agrega un
   agujero en cruz centrado (`Lo/2, Wo/2`), brazos de `gs` mm, grosor de
   brazo `t`.
-- **TOP-INSERT** (nueva): rectángulo liso de `spanX × spanY` — el hueco
-  interno exacto, sin holgura extra (ver tabla de decisiones). Se pega
-  por debajo de TOP, centrado, así que su agujero en cruz (centrado en
-  `spanX/2, spanY/2`) queda alineado con el de TOP. Mismas medidas de
+- **TOP-INSERT** (nueva): rectángulo liso de
+  `spanX − 2·INSERT_CLEARANCE × spanY − 2·INSERT_CLEARANCE` — el hueco
+  interno menos la holgura de cada lado (ver tabla de decisiones). Se pega
+  por debajo de TOP, centrado, así que su agujero en cruz (centrado en el
+  centro de la pieza) queda alineado con el de TOP: la holgura es
+  simétrica y no desplaza ese centro. Mismas medidas de
   agujero que TOP: brazos `gs`, grosor `t`.
 
 Las dos capas usan el mismo mecanismo de agujero ya probado para los
@@ -179,7 +181,8 @@ espigas de junta vs kerf) sin cambios.
   desmarcada.
 - Ningún otro tipo de tapa (con espigas, deslizante, con bisagra, con
   bisagra doble) se toca.
-- Sin holgura calibrable nueva para el inserto (decisión tomada arriba).
+- Sin holgura calibrable nueva para el inserto: la holgura existe, pero es
+  una constante del código (decisión tomada arriba, corregida el 2026-10-19).
 - Sin esquinas redondeadas (decisión tomada arriba).
 - Sin refuerzo, pestillo ni ningún mecanismo de cierre — es una perilla
   para agarrar y levantar la tapa, nada más.
