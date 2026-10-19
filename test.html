@@ -34,6 +34,7 @@
     import {
       gripDiameterFor, gripStemSpanFor, gripGeometry, crossHoleFeature,
       buildTopHole, buildInsertPanel, buildHandlePanels, validateGrip, gripWarnings,
+      INSERT_CLEARANCE,
     } from './js/boxes/lid-grip.js';
     import {
       evenPositions, buildLengthDividerPoints, buildHeightDividerPoints,
@@ -1444,21 +1445,41 @@
       assert(near(cy, 75), `centro Y ${cy}, esperaba 75 (Wo/2)`);
     });
 
-    check('agarradera: buildInsertPanel mide spanX × spanY exacto, con su propio agujero centrado', () => {
+    check('agarradera: buildInsertPanel sale una holgura más chico por lado que el hueco, con su propio agujero centrado', () => {
       const material = { thickness: 3, kerf: 0.16, tabWidth: 12 };
       const insert = buildInsertPanel({
         spanX: 74, spanY: 74, gs: 16, t: 3, material,
       });
       assert(insert.id === 'top-insert', 'id debería ser top-insert');
+      const side = 74 - 2 * INSERT_CLEARANCE;
+      assert(near(insert.width, side) && near(insert.height, side),
+        `declara ${insert.width}×${insert.height}, esperaba ${side}×${side}`);
       const bb = boundingBox(insert.points);
-      assert(near(bb.minX, 0) && near(bb.maxX, 74), `bbox X [${bb.minX},${bb.maxX}], esperaba [0,74]`);
-      assert(near(bb.minY, 0) && near(bb.maxY, 74), `bbox Y [${bb.minY},${bb.maxY}], esperaba [0,74]`);
+      assert(near(bb.minX, 0) && near(bb.maxX, side), `bbox X [${bb.minX},${bb.maxX}], esperaba [0,${side}]`);
+      assert(near(bb.minY, 0) && near(bb.maxY, side), `bbox Y [${bb.minY},${bb.maxY}], esperaba [0,${side}]`);
       assertSimplePolygon(insert.points, 'top-insert');
       assert(insert.features.length === 1, 'debería tener exactamente un agujero');
       const holeBb = boundingBox(insert.features[0].points);
       const cx = (holeBb.minX + holeBb.maxX) / 2;
       const cy = (holeBb.minY + holeBb.maxY) / 2;
-      assert(near(cx, 37) && near(cy, 37), `agujero centrado en (${cx},${cy}), esperaba (37,37)`);
+      assert(near(cx, side / 2) && near(cy, side / 2),
+        `agujero centrado en (${cx},${cy}), esperaba (${side / 2},${side / 2})`);
+    });
+
+    check('agarradera: la holgura del inserto es una franja real a cada lado del hueco interno', () => {
+      assert(INSERT_CLEARANCE > 0, 'sin holgura el inserto no entra en el hueco');
+      const box = buildBox({
+        length: 100, width: 100, height: 60,
+        thickness: 3, kerf: 0.16, tabWidth: 12,
+        dimensionMode: 'inner', lidType: 'flat', grip: true,
+      });
+      assert(box.errors.length === 0, box.errors.join(' | '));
+      const insert = box.panels.find((p) => p.id === 'top-insert');
+      const bb = boundingBox(insert.points);
+      // Hueco interno de 100 × 100: el inserto tiene que salir 2·holgura más chico.
+      const expected = 100 - 2 * INSERT_CLEARANCE;
+      assert(near(bb.width, expected) && near(bb.height, expected),
+        `inserto de ${bb.width}×${bb.height} para un hueco de 100×100, esperaba ${expected}×${expected}`);
     });
 
     const GRIP_GEO = gripGeometry({ t: 3, gd: 30, gs: 16 });
@@ -1592,9 +1613,11 @@
       const insertHoleBb = boundingBox(insert.features[0].points);
       const t = FLAT_GRIP.thickness;
       // TOP-INSERT se centra dentro del hueco interno de TOP: su origen local
-      // (0,0) cae en el absoluto (t,t) — un grosor de pared en cada eje.
-      const insertHoleAbsX = (insertHoleBb.minX + insertHoleBb.maxX) / 2 + t;
-      const insertHoleAbsY = (insertHoleBb.minY + insertHoleBb.maxY) / 2 + t;
+      // (0,0) cae en el absoluto (t + holgura, t + holgura) — un grosor de
+      // pared en cada eje, más la holgura que le queda libre de ese lado.
+      const offset = t + INSERT_CLEARANCE;
+      const insertHoleAbsX = (insertHoleBb.minX + insertHoleBb.maxX) / 2 + offset;
+      const insertHoleAbsY = (insertHoleBb.minY + insertHoleBb.maxY) / 2 + offset;
       const topHoleX = (topHoleBb.minX + topHoleBb.maxX) / 2;
       const topHoleY = (topHoleBb.minY + topHoleBb.maxY) / 2;
       assert(near(topHoleX, insertHoleAbsX, 0.01), `agujero de TOP en x=${topHoleX}, el de TOP-INSERT (centrado) cae en x=${insertHoleAbsX}`);

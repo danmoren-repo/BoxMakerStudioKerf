@@ -72,10 +72,23 @@ export function buildTopHole({
   });
 }
 
-// TOP-INSERT: rectángulo liso del tamaño exacto del hueco interno
-// (spanX × spanY, sin holgura — decisión del spec), con su propio agujero
-// en cruz centrado en el panel, mismas medidas que el de TOP (así quedan
-// alineados una vez pegado por debajo, centrado).
+// Holgura del inserto: cuánto más chico se dibuja a cada lado que el hueco
+// interno donde tiene que caer. El spec original lo dibujaba a la medida
+// exacta del hueco (spanX × spanY) confiando en que el kerf dejara juego
+// solo; al armar una caja de 100 × 100 mm de interior quedó tan tallado que
+// no entraba. Los cantos lisos no llevan compensación de kerf, así que ahí
+// no hay juego de sobra que valga: la holgura tiene que estar en el dibujo.
+// Medio milímetro por lado (un milímetro menos en cada medida total) entra
+// sin forzar y sigue siendo lo bastante ajustado para que el inserto trabe
+// la tapa. No es calibrable desde la página: va fija acá.
+export const INSERT_CLEARANCE = 0.5;
+
+// TOP-INSERT: rectángulo liso que cae dentro del hueco interno
+// (spanX × spanY) con INSERT_CLEARANCE de holgura a cada lado, con su
+// propio agujero en cruz centrado en el panel, mismas medidas que el de
+// TOP (así quedan alineados una vez pegado por debajo, centrado — la
+// holgura es simétrica, así que centrar el inserto en el hueco sigue
+// alineando los dos agujeros).
 export function buildInsertPanel({
   spanX, spanY, gs, t, material,
 }) {
@@ -85,15 +98,17 @@ export function buildInsertPanel({
     left: { gender: 'plain' },
     right: { gender: 'plain' },
   };
-  const spec = { width: spanX, height: spanY, edges };
+  const width = spanX - 2 * INSERT_CLEARANCE;
+  const height = spanY - 2 * INSERT_CLEARANCE;
+  const spec = { width, height, edges };
   const hole = crossHoleFeature({
-    id: 'grip-hole', cx: spanX / 2, cy: spanY / 2, span: gs, thickness: t,
+    id: 'grip-hole', cx: width / 2, cy: height / 2, span: gs, thickness: t,
   });
   return {
     id: 'top-insert',
     label: 'TOP-INSERT',
-    width: spanX,
-    height: spanY,
+    width,
+    height,
     edges,
     points: panelOutline(spec, material),
     features: [hole],
@@ -212,7 +227,10 @@ export function validateGrip({
   if (gd <= gs + 2 * EDGE_MARGIN) {
     errors.push(`La perilla (${gd} mm de diámetro) es demasiado chica, o el agujero (${gs} mm) demasiado ancho: el domo no alcanza a apoyarse sobre la tapa.`);
   }
-  if (gs + 2 * EDGE_MARGIN >= Math.min(spanX, spanY)) {
+  // El agujero vive en el inserto, que ya salió una holgura más chico por
+  // lado: el margen se mide contra la pieza real, no contra el hueco.
+  const insertSide = Math.min(spanX, spanY) - 2 * INSERT_CLEARANCE;
+  if (gs + 2 * EDGE_MARGIN >= insertSide) {
     errors.push(`El material es demasiado grueso, o la perilla demasiado ancha, para una caja de este tamaño: el agujero en cruz (${gs} mm) no cabe dentro del hueco interno.`);
   }
   return errors;
