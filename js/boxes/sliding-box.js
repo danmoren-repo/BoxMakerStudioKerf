@@ -1,4 +1,4 @@
-import { panelOutline, pocketFeature } from '../core/panel.js';
+import { panelOutline, pocketFeature, rectHoleFeature } from '../core/panel.js';
 import {
   autoTabWidthFromSpans,
   commonWarnings,
@@ -9,8 +9,12 @@ import {
   validateTabsVsKerf,
 } from './shared.js';
 import {
-  buildDividerPanels, validateDividers, dividerWarnings,
+  buildDividerPanels, validateDividers, dividerWarnings, evenPositions,
+  featureBounds, planDividerTabs, slotFits, slotTooClose,
 } from './dividers.js';
+import {
+  handleWidthFor, handleDepthFor, handleCornerRadiusFor, roundedTabTip,
+} from './hinged-box.js';
 
 const DEFAULT_CLEARANCE = 0.2;
 const MAX_AUTO_GROOVE_DEPTH = 6;
@@ -73,14 +77,14 @@ export function buildSlidingBox(params) {
   const spanZBack = wallHeight - 2 * t; // fondo <-> laterales
 
   const lengthDividers = Number.isFinite(params.lengthDividers) ? params.lengthDividers : 0;
-  const heightDividers = Number.isFinite(params.heightDividers) ? params.heightDividers : 0;
+  const widthDividers = Number.isFinite(params.widthDividers) ? params.widthDividers : 0;
 
   const errors = validate({
     Lo, Wo, Ho, t, tl, h, p, kerf, tabWidth,
     spanX, spanY, spanZFront, spanZBack, frontHeight,
   });
   if (errors.length === 0) {
-    errors.push(...validateDividers({ lengthDividers, heightDividers, spanY, t }));
+    errors.push(...validateDividers({ lengthDividers, widthDividers, dividerHeight: innerHeight, t }));
   }
   if (errors.length > 0) return { errors, warnings: [], panels: [] };
 
@@ -91,6 +95,15 @@ export function buildSlidingBox(params) {
     zBack: jointSegments(spanZBack, tabWidth),
   };
 
+  const tabPlan = planDividerTabs({
+    dividerMode: params.dividerMode, lengthDividers, widthDividers,
+    spanX, spanY, dividerHeight: innerHeight, t,
+    lengthTabWidth: joints.z.width, widthTabWidth: joints.y.width,
+  });
+  errors.push(...tabPlan.errors);
+  if (errors.length > 0) return { errors, warnings: [], panels: [] };
+  const dividerTabs = tabPlan.tabs;
+
   // Toda junta arranca y termina con material en la pieza hembra, para que las
   // esquinas no queden colgando de medio kerf.
   const SOLID = { startsSolid: true };
@@ -98,10 +111,60 @@ export function buildSlidingBox(params) {
   // La tapa se dibuja una holgura más chica que el hueco donde vive: si llegara
   // al fondo de los tres canales entraría a presión y no deslizaría.
   const grip = p - h;
+  const lidW = spanX + 2 * grip;
+  const hw = handleWidthFor(params);
+  const hd = handleDepthFor(params);
+  errors.push(...validateSlidingHandle({ handleWidth: hw, handleDepth: hd, lidWidth: lidW, t }));
+  if (errors.length > 0) return { errors, warnings: [], panels: [] };
   const grooveHeight = tl + h;
   // El canal es una banda horizontal; en coordenadas de pieza, y = 0 es el canto
   // superior de la pared, así que z se lee al revés.
   const grooveY = wallHeight - grooveTop;
+
+  // Cada pared conserva sus propios cortes (canal incluido) como obstáculos:
+  // una ranura cercana debilitaría la pared aunque ambas figuras no se toquen.
+  const slotsFor = (label, width, height, existing, slots) => {
+    const features = [...existing];
+    for (const rect of slots) {
+      if (!slotFits(rect, {
+        bounds: { x0: 0, y0: 0, x1: width, y1: height }, t,
+        obstacles: features.map(featureBounds),
+      })) {
+        errors.push(slotTooClose(label, t));
+        return existing;
+      }
+      features.push(rectHoleFeature({ id: rect.id, x: rect.x0, y: rect.y0,
+        width: rect.x1 - rect.x0, height: rect.y1 - rect.y0, kerf }));
+    }
+    return features;
+  };
+  const lengthSlots = dividerTabs?.length ? evenPositions(spanX, lengthDividers).map((x, i) => ({
+    id: `divider-slot-l${i + 1}`,
+    x0: t + x - t / 2, x1: t + x + t / 2,
+    center: dividerTabs.length.center,
+  })) : [];
+  const widthSlots = dividerTabs?.width ? evenPositions(spanY, widthDividers).map((y, i) => ({
+    id: `divider-slot-w${i + 1}`,
+    x0: y - t / 2, x1: y + t / 2,
+  })) : [];
+  const lengthSlotsAt = (height) => lengthSlots.map((slot) => ({ ...slot,
+    y0: height - t - slot.center - joints.z.width / 2,
+    y1: height - t - slot.center + joints.z.width / 2,
+  }));
+  const widthSlotsAt = (height) => widthSlots.map((slot) => ({ ...slot,
+    y0: height - t - dividerTabs.width.center - joints.y.width / 2,
+    y1: height - t - dividerTabs.width.center + joints.y.width / 2,
+  }));
+  const sideGroove = pocketFeature({ id: 'groove', x: 0, y: grooveY,
+    width: spanY, height: grooveHeight, depth: p });
+  const backGroove = pocketFeature({ id: 'groove', x: t - p, y: grooveY,
+    width: Lo - 2 * t + 2 * p, height: grooveHeight, depth: p });
+  const frontFeatures = dividerTabs ? slotsFor('FRONT', Lo, frontHeight, [], lengthSlotsAt(frontHeight)) : [];
+  const backFeatures = dividerTabs ? slotsFor('BACK', Lo, wallHeight, [backGroove], lengthSlotsAt(wallHeight)) : [backGroove];
+  const sideFeatures = dividerTabs
+    ? slotsFor('LEFT/RIGHT', spanY, wallHeight, [sideGroove], widthSlotsAt(wallHeight))
+    : [sideGroove];
+  if (errors.length > 0) return { errors, warnings: [], panels: [] };
 
   // Los dos laterales NO son la misma pieza: son espejo uno del otro. El canal
   // va en la cara interior, y una pieza grabada sólo tiene canal en una cara; si
@@ -136,12 +199,7 @@ export function buildSlidingBox(params) {
       },
       // El canal recorre la pieza entera, así que es simétrico y no cambia con
       // el espejo: es lo único de la pieza que sí puede ser idéntico en ambos.
-      features: [pocketFeature({
-        id: 'groove',
-        x: 0, y: grooveY,
-        width: spanY, height: grooveHeight,
-        depth: p,
-      })],
+      features: sideFeatures,
     };
   };
 
@@ -165,11 +223,12 @@ export function buildSlidingBox(params) {
         left: { gender: 'female', jointStart: t, jointSpan: spanZFront, ...SOLID },
         right: { gender: 'female', jointStart: t, jointSpan: spanZFront, ...SOLID },
       },
+      ...(frontFeatures.length ? { features: frontFeatures } : {}),
     },
     sideWall('left', 'LEFT', 'left'),
     {
       id: 'lid', label: 'LID',
-      width: spanX + 2 * grip,
+      width: lidW,
       height: spanY + grip + t,
       edges: {
         top: { gender: 'plain' },
@@ -177,6 +236,13 @@ export function buildSlidingBox(params) {
         left: { gender: 'plain' },
         right: { gender: 'plain' },
       },
+      points: slidingLidPoints({
+        width: lidW,
+        depth: spanY + grip + t,
+        handleWidth: hw,
+        handleDepth: hd,
+        radius: handleCornerRadiusFor(params),
+      }),
     },
     {
       id: 'back', label: 'BACK',
@@ -190,21 +256,16 @@ export function buildSlidingBox(params) {
       // El canal del fondo es más ancho que el hueco interior porque las
       // esquinas de la tapa viven en los tres canales a la vez. Deja margen
       // t − p a cada canto: la misma pared que queda detrás de los laterales.
-      features: [pocketFeature({
-        id: 'groove',
-        x: t - p, y: grooveY,
-        width: Lo - 2 * t + 2 * p, height: grooveHeight,
-        depth: p,
-      })],
+      features: backFeatures,
     },
     sideWall('right', 'RIGHT', 'right'),
   ];
 
   const material = { thickness: t, kerf, tabWidth };
-  const panels = specs.map((spec) => ({ ...spec, points: panelOutline(spec, material) }));
+  const panels = specs.map((spec) => ({ ...spec, points: spec.points ?? panelOutline(spec, material) }));
   const lid = panels.find((panel) => panel.id === 'lid');
   panels.push(...buildDividerPanels({
-    spanX, spanY, dividerHeight: innerHeight, t, kerf, lengthDividers, heightDividers,
+    spanX, spanY, dividerHeight: innerHeight, t, kerf, lengthDividers, widthDividers, tabs: dividerTabs,
   }));
 
   return {
@@ -217,14 +278,57 @@ export function buildSlidingBox(params) {
         t, kerf, tabWidth, p, h, tl, backSegment: joints.zBack.width,
         lidWidth: lid.width, lidDepth: lid.height,
       }),
-      ...dividerWarnings({ lengthDividers, heightDividers, spanX, dividerHeight: innerHeight, t }),
+      ...dividerWarnings({ lengthDividers, widthDividers, spanX, spanY, t }),
     ],
     outer: { length: Lo, width: Wo, height: Ho },
     inner: { length: spanX, width: spanY, height: innerHeight },
     realOuterHeight: wallHeight,
     groove: { depth: p, clearance: h, floor: grooveFloor, top: grooveTop, grip },
     lid: { thickness: tl, width: lid.width, depth: lid.height },
+    dividerTabs,
   };
+}
+
+// La tapa deslizante cerrada queda a ras de la cara exterior del frente: no
+// sobresale nada de donde agarrarla. La lengüeta resuelve eso, y es la misma
+// manija que ya lleva la tapa con bisagra — mismos valores por defecto, mismo
+// aspecto — para que la caja se vea pareja con cualquier tapa.
+//
+// Va centrada en el canto delantero (y = 0) y sobresale hacia afuera (y
+// negativo), igual que la de la bisagra. Como no entra en nada, no hace falta
+// muesca a juego en ninguna pared: queda al aire, por delante de la caja.
+export function slidingLidPoints({
+  width, depth, handleWidth, handleDepth, radius,
+}) {
+  const start = (width - handleWidth) / 2;
+  const tip = roundedTabTip({
+    x: start, width: handleWidth, baseY: 0, tipY: -handleDepth, radius,
+  });
+  return [
+    { x: 0, y: 0 },
+    { x: start, y: 0 },
+    ...tip,
+    { x: start + handleWidth, y: 0 },
+    { x: width, y: 0 },
+    { x: width, y: depth },
+    { x: 0, y: depth },
+  ];
+}
+
+// La lengüeta tiene que dejar material a los dos costados de la tapa: si se
+// come todo el canto delantero, la tapa sale partida en dos.
+export function validateSlidingHandle({
+  handleWidth: hw, handleDepth: hd, lidWidth, t,
+}) {
+  const errors = [];
+  const positive = (value) => Number.isFinite(value) && value > 0;
+  if (!positive(hw)) errors.push('El ancho de la manija debe ser mayor que 0.');
+  if (!positive(hd)) errors.push('La profundidad de la manija debe ser mayor que 0.');
+  if (errors.length > 0) return errors;
+  if (hw + 2 * t > lidWidth) {
+    errors.push(`La manija (${hw} mm) es más ancha que la tapa (${lidWidth.toFixed(1)} mm): no deja material a los costados.`);
+  }
+  return errors;
 }
 
 function validate({

@@ -1,4 +1,8 @@
-import { holeFeature, panelOutline } from '../core/panel.js';
+import { holeFeature, panelOutline, rectHoleFeature } from '../core/panel.js';
+import {
+  buildDividerPanels, validateDividers, dividerWarnings, evenPositions,
+  featureBounds, planDividerTabs, slotFits, slotTooClose, sweptBandLengthError,
+} from './dividers.js';
 import {
   autoTabWidthFromSpans,
   commonWarnings,
@@ -66,6 +70,21 @@ export function buildHingedDoubleBox(params) {
   const spanX = Lo - 2 * t; // base <-> frontal/trasera
   const spanY = Wo - 2 * t; // base <-> laterales
   const spanZ = wallHeight - 2 * t; // juntas verticales de las esquinas
+  const innerHeight = wallHeight - t - tl; // piso a cara interior de la tapa
+  const lengthDividers = Number.isFinite(params.lengthDividers) ? params.lengthDividers : 0;
+  const widthDividers = Number.isFinite(params.widthDividers) ? params.widthDividers : 0;
+  // Distancia del eje de cada mitad a la cara interior de su lateral: la
+  // misma fórmula de la bisagra simple, acá implícita en postCenterX.
+  const pivotInset = EDGE_MARGIN + rh;
+  // Al abrir, la cola de cada mitad (lo que queda entre el eje y su lateral)
+  // baja dentro de la caja, barriendo un sector de radio pivotInset. A
+  // diferencia de la bisagra simple, los ejes van de adelante hacia atrás
+  // pegados a los LATERALES, así que es el divisor de ANCHO el que llega
+  // hasta ellos y el que lleva recortadas sus dos esquinas superiores.
+  const dividerTopCut = {
+    width: 2 * pivotInset,
+    depth: pivotInset - tl / 2,
+  };
   // Cada mitad deja un juego g contra su lateral y otro g contra la otra
   // mitad, y g contra frontal y trasera. Espigas y lengüetas se alargan g
   // para que sus puntas sigan donde estaban (a ras de la cara exterior).
@@ -95,12 +114,75 @@ export function buildHingedDoubleBox(params) {
     Lo, Wo, Ho, t, tl, ps, hc, rh, kerf, tabWidth, spanX, spanY, spanZ, hw, hd, doorWidth,
     leftPostEnd, rightPostStart, notchStart, notchEnd,
   });
+  if (errors.length === 0) {
+    errors.push(...validateDividers({
+      lengthDividers, widthDividers, dividerHeight: innerHeight, t,
+    }));
+  }
   if (errors.length > 0) return { errors, warnings: [], panels: [] };
+
+  // Un divisor de largo que caiga dentro del alcance horizontal del barrido
+  // trabaría su mitad de la tapa. No se le puede recortar la esquina como al
+  // de ancho: le tocaría a lo largo de todo su canto superior.
+  if (evenPositions(spanX, lengthDividers).some((x) => x < dividerTopCut.width
+    || spanX - x < dividerTopCut.width)) {
+    errors.push(sweptBandLengthError());
+    return { errors, warnings: [], panels: [] };
+  }
 
   const joints = {
     x: jointSegments(spanX, tabWidth),
     y: jointSegments(spanY, tabWidth),
     z: jointSegments(spanZ, tabWidth),
+  };
+
+  const tabPlan = planDividerTabs({
+    dividerMode: params.dividerMode, lengthDividers, widthDividers,
+    spanX, spanY, dividerHeight: innerHeight, t,
+    lengthTabWidth: joints.z.width, widthTabWidth: joints.y.width,
+    topCutDepth: dividerTopCut.depth,
+  });
+  errors.push(...tabPlan.errors);
+  if (errors.length > 0) return { errors, warnings: [], panels: [] };
+  const dividerTabs = tabPlan.tabs;
+
+  // En frontal y trasera, y = 0 es el canto superior de la PARED: los postes
+  // viven en y negativo aunque la pieza declare una altura que los incluya.
+  // Las ranuras se sitúan contra wallHeight, no contra esa altura declarada.
+  const slotsFor = (label, width, height, existing, slots) => {
+    const features = [...existing];
+    for (const rect of slots) {
+      if (!slotFits(rect, {
+        bounds: { x0: 0, y0: 0, x1: width, y1: height }, t,
+        obstacles: features.map(featureBounds),
+      })) {
+        errors.push(slotTooClose(label, t));
+        return existing;
+      }
+      features.push(rectHoleFeature({ id: rect.id, x: rect.x0, y: rect.y0,
+        width: rect.x1 - rect.x0, height: rect.y1 - rect.y0, kerf }));
+    }
+    return features;
+  };
+  const lengthSlots = dividerTabs?.length ? evenPositions(spanX, lengthDividers).map((x, i) => ({
+    id: `divider-slot-l${i + 1}`,
+    x0: t + x - t / 2, x1: t + x + t / 2,
+    y0: wallHeight - t - dividerTabs.length.center - joints.z.width / 2,
+    y1: wallHeight - t - dividerTabs.length.center + joints.z.width / 2,
+  })) : [];
+  const widthSlots = dividerTabs?.width ? evenPositions(spanY, widthDividers).map((y, i) => ({
+    id: `divider-slot-w${i + 1}`,
+    x0: y - t / 2, x1: y + t / 2,
+    y0: wallHeight - t - dividerTabs.width.center - joints.y.width / 2,
+    y1: wallHeight - t - dividerTabs.width.center + joints.y.width / 2,
+  })) : [];
+  // La muesca central de las lengüetas es un corte del canto superior: hay
+  // que guardarle material igual que a los agujeros de bisagra.
+  const notchObstacle = {
+    points: [
+      { x: notchStart, y: 0 }, { x: notchEnd, y: 0 },
+      { x: notchEnd, y: tl }, { x: notchStart, y: tl },
+    ],
   };
 
   const SOLID = { startsSolid: true };
@@ -137,7 +219,12 @@ export function buildHingedDoubleBox(params) {
       [backEdge]: { gender: 'male', jointStart: t, jointSpan: spanZ, ...SOLID },
     };
     const spec = { width: spanY, height: wallHeight, edges };
-    return { id, label, width: spanY, height: wallHeight, edges, points: panelOutline(spec, material) };
+    const features = dividerTabs ? slotsFor(label, spanY, wallHeight, [], widthSlots) : [];
+    return {
+      id, label, width: spanY, height: wallHeight, edges,
+      points: panelOutline(spec, material),
+      ...(features.length ? { features } : {}),
+    };
   };
 
   // Cada pared (frontal y trasera) lleva DOS postes, uno cerca de cada
@@ -175,11 +262,16 @@ export function buildHingedDoubleBox(params) {
       id: `hinge-hole-${suffix}`, cx: postCenterX(nearLeftEnd), cy: tl / 2, diameter: dh, kerf,
     });
 
+    const holes = [hole(true, 'left'), hole(false, 'right')];
+    const features = dividerTabs
+      ? slotsFor(label, Lo, wallHeight, [...holes, notchObstacle], lengthSlots)
+          .filter((f) => f !== notchObstacle)
+      : holes;
     return {
       id, label, width: Lo, height: wallHeight + postHeight,
       edges: endWallEdges,
       points: [...top, ...rest],
-      features: [hole(true, 'left'), hole(false, 'right')],
+      features,
     };
   };
 
@@ -267,19 +359,31 @@ export function buildHingedDoubleBox(params) {
   const lidLeft = buildDoor('lid-left', 'LID-LEFT', true);
   const lidRight = buildDoor('lid-right', 'LID-RIGHT', false);
 
-  const panels = [generic.bottom, front, left, lidLeft, lidRight, back, right];
+  if (errors.length > 0) return { errors, warnings: [], panels: [] };
+
+  const dividerPanels = buildDividerPanels({
+    spanX, spanY, dividerHeight: innerHeight, t, kerf, lengthDividers, widthDividers,
+    topCornerCut: dividerTopCut, topCornerCutOn: 'width', tabs: dividerTabs,
+  });
+  const panels = [generic.bottom, front, left, lidLeft, lidRight, back, right, ...dividerPanels];
 
   return {
     panels,
     joints,
     errors,
-    warnings: warningsFor({
-      jointWidths: [joints.x.width, joints.y.width, joints.z.width],
-      t, kerf, tabWidth, hc, rh, tl, Lo, hw,
-    }),
+    warnings: [
+      ...warningsFor({
+        jointWidths: [joints.x.width, joints.y.width, joints.z.width],
+        t, kerf, tabWidth, hc, rh, tl, Lo, hw,
+      }),
+      ...dividerWarnings({ lengthDividers, widthDividers, spanX, spanY, t }),
+    ],
     outer: { length: Lo, width: Wo, height: Ho },
     inner: { length: spanX, width: spanY, height: wallHeight - t - tl },
     hinge: { pegSize: ps, clearance: hc, holeDiameter: dh, postHeight },
+    dividerTabs,
+    dividerTopCutDepth: dividerTopCut.depth,
+    dividerTopCutWidth: dividerTopCut.width,
   };
 }
 
