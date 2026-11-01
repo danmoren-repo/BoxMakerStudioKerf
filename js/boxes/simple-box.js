@@ -1,4 +1,4 @@
-import { panelOutline } from '../core/panel.js';
+import { panelOutline, rectHoleFeature } from '../core/panel.js';
 import {
   gripDiameterFor, gripStemSpanFor, gripGeometry,
   buildTopHole, buildInsertPanel, buildHandlePanels,
@@ -14,7 +14,8 @@ import {
   validateTabsVsKerf,
 } from './shared.js';
 import {
-  buildDividerPanels, validateDividers, dividerWarnings,
+  buildDividerPanels, validateDividers, dividerWarnings, evenPositions,
+  featureBounds, planDividerTabs, slotFits, slotTooClose,
 } from './dividers.js';
 
 // Suggested finger width: ~3x material thickness, never under 6 mm, and always
@@ -47,7 +48,7 @@ export function buildBox(params) {
   const gd = gripEnabled ? gripDiameterFor(params) : null;
   const gs = gripEnabled ? gripStemSpanFor(params) : null;
   const lengthDividers = Number.isFinite(params.lengthDividers) ? params.lengthDividers : 0;
-  const heightDividers = Number.isFinite(params.heightDividers) ? params.heightDividers : 0;
+  const widthDividers = Number.isFinite(params.widthDividers) ? params.widthDividers : 0;
   const wallHeight = wallHeightFor(Ho, t, lidType);
 
   const spanX = Lo - 2 * t; // Front/Back <-> Top/Bottom joints
@@ -71,7 +72,7 @@ export function buildBox(params) {
   }
   if (errors.length === 0) {
     errors.push(...validateDividers({
-      lengthDividers, heightDividers, spanY, t,
+      lengthDividers, widthDividers, dividerHeight, t,
     }));
   }
   if (errors.length > 0) return { errors, warnings: [], panels: [] };
@@ -81,6 +82,52 @@ export function buildBox(params) {
     y: jointSegments(spanY, tabWidth),
     z: jointSegments(spanZ, tabWidth),
   };
+
+  const tabPlan = planDividerTabs({
+    dividerMode: params.dividerMode, lengthDividers, widthDividers,
+    spanX, spanY, dividerHeight, t,
+    lengthTabWidth: joints.z.width, widthTabWidth: joints.y.width,
+  });
+  errors.push(...tabPlan.errors);
+  if (errors.length > 0) return { errors, warnings: [], panels: [] };
+  const dividerTabs = tabPlan.tabs;
+
+  // Las ranuras se calculan en las coordenadas de cada pared. Validarlas antes
+  // de dibujar evita dejar una cejilla debilitando un dedo del contorno.
+  const tabFeatures = (id, width, height, lengthSlots, widthSlots) => {
+    const features = [];
+    for (const rect of [...lengthSlots, ...widthSlots]) {
+      if (!slotFits(rect, {
+        bounds: { x0: 0, y0: 0, x1: width, y1: height }, t,
+        obstacles: features.map(featureBounds),
+      })) {
+        errors.push(slotTooClose(id, t));
+        return null;
+      }
+      features.push(rectHoleFeature({ id: rect.id, x: rect.x0, y: rect.y0,
+        width: rect.x1 - rect.x0, height: rect.y1 - rect.y0, kerf }));
+    }
+    return features;
+  };
+  let endFeatures;
+  let sideFeatures;
+  if (dividerTabs) {
+    const lengthSlots = dividerTabs.length ? evenPositions(spanX, lengthDividers).map((x, i) => ({
+      id: `divider-slot-l${i + 1}`,
+      x0: t + x - t / 2, x1: t + x + t / 2,
+      y0: wallHeight - t - dividerTabs.length.center - joints.z.width / 2,
+      y1: wallHeight - t - dividerTabs.length.center + joints.z.width / 2,
+    })) : [];
+    const widthSlots = dividerTabs.width ? evenPositions(spanY, widthDividers).map((y, i) => ({
+      id: `divider-slot-w${i + 1}`,
+      x0: y - t / 2, x1: y + t / 2,
+      y0: wallHeight - t - dividerTabs.width.center - joints.y.width / 2,
+      y1: wallHeight - t - dividerTabs.width.center + joints.y.width / 2,
+    })) : [];
+    endFeatures = tabFeatures('FRONT/BACK', Lo, wallHeight, lengthSlots, []);
+    sideFeatures = tabFeatures('LEFT/RIGHT', spanY, wallHeight, [], widthSlots);
+    if (errors.length > 0) return { errors, warnings: [], panels: [] };
+  }
 
   // Toda junta arranca y termina con material en la pieza hembra. Si arrancara
   // con ranura, las dos ranuras que concurren en una esquina dejarían el bloque
@@ -100,6 +147,7 @@ export function buildBox(params) {
       left: { gender: 'female', jointStart: t, jointSpan: spanZ, ...SOLID },
       right: { gender: 'female', jointStart: t, jointSpan: spanZ, ...SOLID },
     },
+    ...(endFeatures?.length ? { features: endFeatures } : {}),
   };
 
   const sideWall = {
@@ -111,6 +159,7 @@ export function buildBox(params) {
       left: { gender: 'male', jointStart: t, jointSpan: spanZ, ...SOLID },
       right: { gender: 'male', jointStart: t, jointSpan: spanZ, ...SOLID },
     },
+    ...(sideFeatures?.length ? { features: sideFeatures } : {}),
   };
 
   const cap = {
@@ -164,7 +213,7 @@ export function buildBox(params) {
   }
 
   panels.push(...buildDividerPanels({
-    spanX, spanY, dividerHeight, t, kerf, lengthDividers, heightDividers,
+    spanX, spanY, dividerHeight, t, kerf, lengthDividers, widthDividers, tabs: dividerTabs,
   }));
 
   return {
@@ -178,11 +227,12 @@ export function buildBox(params) {
       }),
       ...(gripEnabled ? gripWarnings({ gd, gs }) : []),
       ...dividerWarnings({
-        lengthDividers, heightDividers, spanX, dividerHeight, t,
+        lengthDividers, widthDividers, spanX, spanY, t,
       }),
     ],
     outer: { length: Lo, width: Wo, height: Ho },
     inner: { length: Lo - 2 * t, width: Wo - 2 * t, height: Ho - 2 * t },
+    dividerTabs,
     ...(gripEnabled ? { grip: { diameter: gd, stemSpan: gs } } : {}),
   };
 }

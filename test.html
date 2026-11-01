@@ -23,7 +23,7 @@
     import { panelOutline, pocketFeature, holeFeature, rectHoleFeature } from './js/core/panel.js';
     import { boundingBox } from './js/core/geometry.js';
     import { buildBox, autoTabWidth } from './js/boxes/simple-box.js';
-    import { buildSlidingBox } from './js/boxes/sliding-box.js';
+    import { buildSlidingBox, slidingLidPoints, validateSlidingHandle } from './js/boxes/sliding-box.js';
     import {
       buildSlidingSupportBox, slidingSupportHeights, windowFrameFor,
       autoTabWidth as supportAutoTabWidth,
@@ -37,8 +37,10 @@
       INSERT_CLEARANCE,
     } from './js/boxes/lid-grip.js';
     import {
-      evenPositions, buildLengthDividerPoints, buildHeightDividerPoints,
+      evenPositions, buildDividerPoints,
       validateDividers, dividerWarnings, buildDividerPanels,
+      resolveDividerMode, tabCenter, planDividerTabs, slotFits, featureBounds,
+      NO_TAB_ROOM, sweptBandError, sweptBandLengthError,
     } from './js/boxes/dividers.js';
 
     const results = [];
@@ -545,11 +547,15 @@
       assert(near(sp('left').width, 74), `lateral ancho ${sp('left').width}`);
     });
 
-    check('deslizante: la tapa mide 76.6 × 78.3 y va lisa', () => {
+    check('deslizante: la tapa mide 76.6 × 78.3, sin espigas y con manija', () => {
       const lid = sp('lid');
       assert(near(lid.width, 76.6), `ancho ${lid.width}`);
       assert(near(lid.height, 78.3), `profundo ${lid.height}`);
-      assert(lid.points.length === 4, `${lid.points.length} puntos: la tapa no lleva espigas`);
+      // Los cuatro cantos siguen lisos: los únicos puntos fuera del rectángulo
+      // son los de la lengüeta, que sobresale por delante (y < 0).
+      assert(lid.points.some((p) => p.y < 0), 'la tapa debería traer la lengüeta de agarre');
+      assert(lid.points.filter((p) => p.y >= 0).every((p) => near(p.y, 0) || near(p.y, lid.height)),
+        'fuera de la lengüeta, los cantos de la tapa van lisos');
     });
 
     check('deslizante: interior útil y modo interiores', () => {
@@ -814,9 +820,11 @@
         const [pw, ph] = dims(id);
         assert(near(pw, w) && near(ph, h), `${id}: ${pw} × ${ph}, esperaba ${w} × ${h}`);
       }
-      for (const id of ['support-1', 'support-2', 'lid']) {
+      for (const id of ['support-1', 'support-2']) {
         assert(supp(id).points.length === 4, `${id}: ${supp(id).points.length} puntos, va liso`);
       }
+      // La tapa es lisa salvo por la lengüeta de agarre del canto delantero.
+      assert(supp('lid').points.some((p) => p.y < 0), 'la tapa debería traer la lengüeta de agarre');
       assert(near(sup.window.width, 79) && near(sup.window.depth, 129) && near(sup.window.frame, 7.5),
         `ventana ${sup.window.width} × ${sup.window.depth}, marco ${sup.window.frame}`);
       assert(near(sup.lid.width, 93.6) && near(sup.lid.depth, 146.8) && near(sup.lid.thickness, 3), 'resumen de tapa');
@@ -930,14 +938,15 @@
       assert(near(supportAutoTabWidth(SUPPORTS), 9), `espiga automática ${supportAutoTabWidth(SUPPORTS)}`);
     });
 
-    check('soportes: los estantes usan el ancho entre soportes', () => {
-      const box = buildSlidingSupportBox({ ...SUPPORTS, lengthDividers: 1, heightDividers: 1 });
+    check('soportes: el divisor de ancho usa el largo entre soportes, con el mismo alto que el de largo', () => {
+      const box = buildSlidingSupportBox({ ...SUPPORTS, lengthDividers: 1, widthDividers: 1 });
       assert(box.errors.length === 0, box.errors.join(' | '));
       assert(box.panels.length === 11, `${box.panels.length} piezas, esperaba 11 (9 + 1 + 1)`);
-      const shelf = boundingBox(box.panels.find((p) => p.id === 'divider-h1').points);
-      assert(near(shelf.width, 88) && near(shelf.height, 144), `estante ${shelf.width} × ${shelf.height}`);
-      const wall = boundingBox(box.panels.find((p) => p.id === 'divider-l1').points);
-      assert(near(wall.width, 144) && near(wall.height, 70.8), `divisor de largo ${wall.width} × ${wall.height}`);
+      const w = boundingBox(box.panels.find((p) => p.id === 'divider-w1').points);
+      assert(near(w.width, 88) && near(w.height, 70.8), `divisor de ancho ${w.width} × ${w.height}`);
+      const l = boundingBox(box.panels.find((p) => p.id === 'divider-l1').points);
+      assert(near(l.width, 144) && near(l.height, 70.8), `divisor de largo ${l.width} × ${l.height}`);
+      assert(near(w.height, l.height), 'los dos divisores deben tener el mismo alto');
     });
 
     check('soportes: el canal grabado no cambia (regresión)', () => {
@@ -1656,88 +1665,96 @@
       assert(JSON.stringify(evenPositions(100, 1)) === '[50]', 'evenPositions(100,1) debería dar [50]');
     });
 
-    check('divisores: buildLengthDividerPoints sin posiciones da un rectángulo liso de 4 puntos', () => {
-      const pts = buildLengthDividerPoints({
-        width: 44, height: 114, notchDepth: 22, notchWidth: 2.9, positions: [],
-      });
-      assert(pts.length === 4, `${pts.length} puntos, esperaba 4`);
-      const bb = boundingBox(pts);
-      assert(near(bb.width, 44) && near(bb.height, 114), `bbox ${bb.width}x${bb.height}, esperaba 44x114`);
-      assertSimplePolygon(pts, 'buildLengthDividerPoints sin muescas');
+    check('divisores: buildDividerPoints sin posiciones da un rectángulo liso de 4 puntos', () => {
+      for (const notchEdge of ['bottom', 'top']) {
+        const pts = buildDividerPoints({
+          width: 44, height: 114, notchEdge, notchDepth: 57, notchWidth: 2.9, positions: [],
+        });
+        assert(pts.length === 4, `${notchEdge}: ${pts.length} puntos, esperaba 4`);
+        const bb = boundingBox(pts);
+        assert(near(bb.width, 44) && near(bb.height, 114), `${notchEdge}: bbox ${bb.width}x${bb.height}, esperaba 44x114`);
+        assertSimplePolygon(pts, `buildDividerPoints ${notchEdge} sin muescas`);
+      }
     });
 
-    check('divisores: buildLengthDividerPoints con 2 muescas reproduce el ejemplo de referencia (Nc=3,Ns=2)', () => {
-      const positions = evenPositions(114, 2); // [38, 76] — alto interior 114, 2 divisores de alto
-      const pts = buildLengthDividerPoints({
-        width: 44, height: 114, notchDepth: 22, notchWidth: 2.9, positions,
+    check('divisores: la placa de largo entalla desde abajo y la de ancho desde arriba', () => {
+      const abajo = buildDividerPoints({
+        width: 44, height: 114, notchEdge: 'bottom', notchDepth: 57, notchWidth: 2.9, positions: [22],
+      });
+      const arriba = buildDividerPoints({
+        width: 144, height: 114, notchEdge: 'top', notchDepth: 57, notchWidth: 2.9, positions: [72],
+      });
+      assert(abajo.some((p) => near(p.y, 114)) && abajo.some((p) => near(p.y, 57)),
+        'la muesca de abajo debería ir de y=114 (canto inferior) a y=57 (media altura)');
+      assert(arriba.some((p) => near(p.y, 0)) && arriba.some((p) => near(p.y, 57)),
+        'la muesca de arriba debería ir de y=0 (canto superior) a y=57 (media altura)');
+      assertSimplePolygon(abajo, 'placa de largo');
+      assertSimplePolygon(arriba, 'placa de ancho');
+    });
+
+    check('divisores: la placa de largo con 2 muescas da 12 puntos y no agranda el bbox', () => {
+      const positions = evenPositions(44, 2); // dos divisores de ancho cruzando
+      const pts = buildDividerPoints({
+        width: 44, height: 114, notchEdge: 'bottom', notchDepth: 57, notchWidth: 2.9, positions,
       });
       assert(pts.length === 12, `${pts.length} puntos, esperaba 12 (4 esquinas + 2 muescas x 4)`);
       const bb = boundingBox(pts);
-      assert(near(bb.width, 44) && near(bb.height, 114), 'las muescas no deberían agrandar el bbox: son cortes hacia adentro');
-      assertSimplePolygon(pts, 'buildLengthDividerPoints con 2 muescas');
-      // La muesca en v=76 debería llegar hasta u=22 (notchDepth) y no más lejos.
-      const notchPoints = pts.filter((p) => near(p.y, 76 + 1.45) || near(p.y, 76 - 1.45));
-      assert(notchPoints.some((p) => near(p.x, 22)), 'la muesca en v=76 debería tener un punto en u=22 (notchDepth)');
+      assert(near(bb.width, 44) && near(bb.height, 114), 'las muescas son cortes hacia adentro: no agrandan el bbox');
+      assertSimplePolygon(pts, 'placa de largo con 2 muescas');
     });
 
-    check('divisores: buildHeightDividerPoints con 3 muescas reproduce el ejemplo de referencia (Nc=3,Ns=2)', () => {
-      const positions = evenPositions(144, 3); // [36, 72, 108] — largo interior 144, 3 divisores de largo
-      const pts = buildHeightDividerPoints({
-        width: 144, height: 44, notchDepth: 22, notchWidth: 2.9, positions,
+    check('divisores: la placa de ancho con 3 muescas da 16 puntos y no agranda el bbox', () => {
+      const positions = evenPositions(144, 3); // tres divisores de largo cruzando
+      const pts = buildDividerPoints({
+        width: 144, height: 114, notchEdge: 'top', notchDepth: 57, notchWidth: 2.9, positions,
       });
-      assert(pts.length === 16, `${pts.length} puntos, esperaba 16 (3 esquinas + 3 muescas x 4 + 1 esquina final)`);
+      assert(pts.length === 16, `${pts.length} puntos, esperaba 16`);
       const bb = boundingBox(pts);
-      assert(near(bb.width, 144) && near(bb.height, 44), 'las muescas no deberían agrandar el bbox');
-      assertSimplePolygon(pts, 'buildHeightDividerPoints con 3 muescas');
+      assert(near(bb.width, 144) && near(bb.height, 114), 'las muescas no deberían agrandar el bbox');
+      assertSimplePolygon(pts, 'placa de ancho con 3 muescas');
       const notchPoints = pts.filter((p) => near(p.x, 72 + 1.45) || near(p.x, 72 - 1.45));
-      assert(notchPoints.some((p) => near(p.y, 22)), 'la muesca en u=72 debería tener un punto en v=22 (notchDepth)');
-      assert(pts.some((p) => near(p.x, 0) && near(p.y, 44)), 'debería incluir la esquina inferior izquierda (0, height)');
-    });
-
-    check('divisores: buildHeightDividerPoints sin posiciones da un rectángulo liso de 4 puntos', () => {
-      const pts = buildHeightDividerPoints({
-        width: 144, height: 44, notchDepth: 22, notchWidth: 2.9, positions: [],
-      });
-      assert(pts.length === 4, `${pts.length} puntos, esperaba 4`);
-      const bb = boundingBox(pts);
-      assert(near(bb.width, 144) && near(bb.height, 44), `bbox ${bb.width}x${bb.height}, esperaba 144x44`);
-      assertSimplePolygon(pts, 'buildHeightDividerPoints sin muescas');
+      assert(notchPoints.some((p) => near(p.y, 57)), 'la muesca en u=72 debería llegar a v=57 (media altura)');
     });
 
     check('divisores: validateDividers no da error con cantidades válidas y espacio de sobra', () => {
       const errors = validateDividers({
-        lengthDividers: 3, heightDividers: 2, spanY: 44, t: 3,
+        lengthDividers: 3, widthDividers: 2, dividerHeight: 114, t: 3,
       });
       assert(errors.length === 0, errors.join(' | '));
     });
 
     check('divisores: validateDividers rechaza cantidades no enteras o negativas', () => {
-      assert(validateDividers({ lengthDividers: 1.5, heightDividers: 0, spanY: 44, t: 3 }).length === 1,
+      assert(validateDividers({ lengthDividers: 1.5, widthDividers: 0, dividerHeight: 114, t: 3 }).length === 1,
         'debería rechazar 1.5');
-      assert(validateDividers({ lengthDividers: -1, heightDividers: 0, spanY: 44, t: 3 }).length === 1,
+      assert(validateDividers({ lengthDividers: -1, widthDividers: 0, dividerHeight: 114, t: 3 }).length === 1,
         'debería rechazar -1');
-      assert(validateDividers({ lengthDividers: undefined, heightDividers: 0, spanY: 44, t: 3 }).length === 0,
+      assert(validateDividers({ lengthDividers: undefined, widthDividers: 0, dividerHeight: 114, t: 3 }).length === 0,
         'sin valor (undefined) debería tratarse como 0, sin error');
     });
 
-    check('divisores: validateDividers da error si el cruce no deja material (spanY/2 <= t)', () => {
+    check('divisores: validateDividers da error si el cruce no deja material (alto/2 <= t)', () => {
       const errors = validateDividers({
-        lengthDividers: 1, heightDividers: 1, spanY: 5, t: 3,
+        lengthDividers: 1, widthDividers: 1, dividerHeight: 5, t: 3,
       });
       assert(errors.length === 1, `esperaba 1 error, dio ${errors.length}`);
       const onlyOneType = validateDividers({
-        lengthDividers: 1, heightDividers: 0, spanY: 5, t: 3,
+        lengthDividers: 1, widthDividers: 0, dividerHeight: 5, t: 3,
       });
       assert(onlyOneType.length === 0, 'sin cruce (un solo tipo activo) no debería dar este error');
     });
 
-    check('divisores: dividerWarnings avisa cuando los compartimentos quedan angostos', () => {
+    check('divisores: dividerWarnings avisa por largo y por ancho', () => {
       const tight = dividerWarnings({
-        lengthDividers: 20, heightDividers: 0, spanX: 144, dividerHeight: 114, t: 3,
+        lengthDividers: 20, widthDividers: 0, spanX: 144, spanY: 44, t: 3,
       });
-      assert(tight.length === 1, `esperaba 1 aviso, dio ${tight.length}`);
+      assert(tight.length === 1 && tight[0].includes('de largo'), `esperaba 1 aviso de largo, dio ${tight.join(' | ')}`);
+      const both = dividerWarnings({
+        lengthDividers: 20, widthDividers: 20, spanX: 144, spanY: 44, t: 3,
+      });
+      assert(both.length === 2, `esperaba 2 avisos, dio ${both.length}`);
+      assert(both.some((m) => m.includes('de ancho')), 'falta el aviso de ancho');
       const loose = dividerWarnings({
-        lengthDividers: 3, heightDividers: 2, spanX: 144, dividerHeight: 114, t: 3,
+        lengthDividers: 3, widthDividers: 2, spanX: 144, spanY: 44, t: 3,
       });
       assert(loose.length === 0, loose.join(' | '));
     });
@@ -1745,52 +1762,64 @@
     check('divisores: buildDividerPanels sin divisores da un arreglo vacío', () => {
       const panels = buildDividerPanels({
         spanX: 144, spanY: 44, dividerHeight: 114, t: 3, kerf: 0.1,
-        lengthDividers: 0, heightDividers: 0,
+        lengthDividers: 0, widthDividers: 0,
       });
       assert(panels.length === 0, `${panels.length} piezas, esperaba 0`);
     });
 
-    check('divisores: buildDividerPanels reproduce el caso de referencia "2 y 3" (Nc=3, Ns=2 → 5 piezas)', () => {
+    check('divisores: buildDividerPanels da 3 DIVIDER-L y 2 DIVIDER-W', () => {
       const panels = buildDividerPanels({
         spanX: 144, spanY: 44, dividerHeight: 114, t: 3, kerf: 0.1,
-        lengthDividers: 3, heightDividers: 2,
+        lengthDividers: 3, widthDividers: 2,
       });
-      assert(panels.length === 5, `${panels.length} piezas, esperaba 5 (3 DIVIDER-L + 2 DIVIDER-H)`);
-      for (const id of ['divider-l1', 'divider-l2', 'divider-l3', 'divider-h1', 'divider-h2']) {
+      assert(panels.length === 5, `${panels.length} piezas, esperaba 5 (3 DIVIDER-L + 2 DIVIDER-W)`);
+      for (const id of ['divider-l1', 'divider-l2', 'divider-l3', 'divider-w1', 'divider-w2']) {
         assert(panels.find((p) => p.id === id), `falta la pieza ${id}`);
       }
       for (const p of panels) assertSimplePolygon(p.points, p.id);
     });
 
+    check('divisores: los dos tipos tienen el mismo alto y cada uno su tramo interior', () => {
+      const panels = buildDividerPanels({
+        spanX: 144, spanY: 44, dividerHeight: 114, t: 3, kerf: 0.1,
+        lengthDividers: 1, widthDividers: 1,
+      });
+      const l = boundingBox(panels.find((p) => p.id === 'divider-l1').points);
+      const w = boundingBox(panels.find((p) => p.id === 'divider-w1').points);
+      assert(near(l.height, 114) && near(w.height, 114), `altos ${l.height} y ${w.height}, esperaba 114 los dos`);
+      assert(near(l.width, 44), `la placa de largo mide ${l.width}, esperaba 44 (spanY)`);
+      assert(near(w.width, 144), `la placa de ancho mide ${w.width}, esperaba 144 (spanX)`);
+    });
+
     check('divisores: sin cruce (solo un tipo activo), las piezas salen sin muescas', () => {
       const panels = buildDividerPanels({
         spanX: 144, spanY: 44, dividerHeight: 114, t: 3, kerf: 0.1,
-        lengthDividers: 1, heightDividers: 0,
+        lengthDividers: 1, widthDividers: 0,
       });
       assert(panels.length === 1, `${panels.length} piezas, esperaba 1`);
-      assert(panels[0].points.length === 4, 'sin divisores de alto que crucen, DIVIDER-L1 debería ser un rectángulo liso de 4 puntos');
+      assert(panels[0].points.length === 4, 'sin divisores de ancho que crucen, DIVIDER-L1 debería ser un rectángulo liso de 4 puntos');
     });
 
-    check('divisores: en el cruce, lo que le falta a DIVIDER-L es justo lo que le sobra a DIVIDER-H (y viceversa)', () => {
-      // Caja de referencia del spec: spanX=144, spanY=44, dividerHeight=114,
-      // t=3, kerf=0.1, Nc=3, Ns=2 → cruce en x=72 (2do de 3), z=76 (2do de 2).
+    check('divisores: en el cruce, lo que le falta a DIVIDER-L es justo lo que le sobra a DIVIDER-W', () => {
+      // spanX=144, spanY=44, alto=114, t=3, kerf=0.1, 3 de largo y 2 de ancho.
+      // Cruce en x=72 (2do de 3) y en y=14.67 (1ro de 2). La ranura llega a
+      // media altura (57) desde cantos opuestos.
       const panels = buildDividerPanels({
         spanX: 144, spanY: 44, dividerHeight: 114, t: 3, kerf: 0.1,
-        lengthDividers: 3, heightDividers: 2,
+        lengthDividers: 3, widthDividers: 2,
       });
-      const dividerL2 = panels.find((p) => p.id === 'divider-l2').points; // cruza z=76
-      const dividerH1 = panels.find((p) => p.id === 'divider-h1').points; // cruza x=72 (la más cercana a v=spanY del panel; da igual cuál, todas cruzan x=72)
+      const dividerL2 = panels.find((p) => p.id === 'divider-l2').points;
+      const dividerW1 = panels.find((p) => p.id === 'divider-w1').points;
+      const yCruce = 44 / 3; // primera posición de los divisores de ancho
 
-      // DIVIDER-L2 (spanY x dividerHeight): en la banda z=76, la mitad CERCANA
-      // (u=11, dentro de [0, spanY/2]) debería estar vacía (removida), y la
-      // mitad LEJANA (u=33) debería seguir siendo material.
-      assert(!insidePolygonGrip({ x: 11, y: 76 }, dividerL2), 'DIVIDER-L2 en (11,76) debería estar vacío (dentro de la muesca)');
-      assert(insidePolygonGrip({ x: 33, y: 76 }, dividerL2), 'DIVIDER-L2 en (33,76) debería ser material sólido');
+      // La placa de largo entalla desde abajo: vacía por debajo de media
+      // altura, material por encima.
+      assert(!insidePolygonGrip({ x: yCruce, y: 90 }, dividerL2), 'DIVIDER-L2 abajo del cruce debería estar vacío');
+      assert(insidePolygonGrip({ x: yCruce, y: 25 }, dividerL2), 'DIVIDER-L2 arriba del cruce debería ser material');
 
-      // DIVIDER-H1 (spanX x spanY): en la banda x=72, es justo lo opuesto — la
-      // mitad CERCANA (v=11) es material, la mitad LEJANA (v=33) está vacía.
-      assert(insidePolygonGrip({ x: 72, y: 11 }, dividerH1), 'DIVIDER-H1 en (72,11) debería ser material sólido');
-      assert(!insidePolygonGrip({ x: 72, y: 33 }, dividerH1), 'DIVIDER-H1 en (72,33) debería estar vacío (dentro de la muesca)');
+      // La placa de ancho entalla desde arriba: justo al revés.
+      assert(insidePolygonGrip({ x: 72, y: 90 }, dividerW1), 'DIVIDER-W1 abajo del cruce debería ser material');
+      assert(!insidePolygonGrip({ x: 72, y: 25 }, dividerW1), 'DIVIDER-W1 arriba del cruce debería estar vacío');
     });
 
     // --- Divisores internos: integración con buildBox() (simple-box.js) ---
@@ -1813,7 +1842,7 @@
     });
 
     check('divisores + buildBox: con divisores de largo Y de alto, cruzan y dan las piezas de las dos', () => {
-      const box = buildBox({ ...BASE, lengthDividers: 3, heightDividers: 2 });
+      const box = buildBox({ ...BASE, lengthDividers: 3, widthDividers: 2 });
       assert(box.errors.length === 0, box.errors.join(' | '));
       assert(box.panels.length === 11, `${box.panels.length} piezas, esperaba 11 (6 + 3 + 2)`);
       for (const p of box.panels) assertSimplePolygon(p.points, `${p.id} (buildBox con divisores cruzados)`);
@@ -1830,7 +1859,7 @@
         `divider-l1 (tapa plana) mide ${plainBb.height} de alto, esperaba ${plain.inner.height} (box.inner.height)`);
 
       const withGrip = buildBox({
-        ...FLAT, grip: true, lengthDividers: 1, heightDividers: 1,
+        ...FLAT, grip: true, lengthDividers: 1, widthDividers: 1,
       });
       assert(withGrip.errors.length === 0, withGrip.errors.join(' | '));
       assert(withGrip.panels.length === 11, `${withGrip.panels.length} piezas, esperaba 11 (9 de la agarradera + 2 divisores)`);
@@ -1845,7 +1874,7 @@
     });
 
     check('divisores + buildSlidingBox: con divisores de largo y de alto, cruzan y dan las piezas de las dos', () => {
-      const box = buildSlidingBox({ ...SLIDE, lengthDividers: 2, heightDividers: 1 });
+      const box = buildSlidingBox({ ...SLIDE, lengthDividers: 2, widthDividers: 1 });
       assert(box.errors.length === 0, box.errors.join(' | '));
       assert(box.panels.length === 9, `${box.panels.length} piezas, esperaba 9 (6 + 2 + 1)`);
       for (const p of box.panels) assertSimplePolygon(p.points, `${p.id} (buildSlidingBox con divisores)`);
@@ -1860,7 +1889,7 @@
     });
 
     check('divisores + buildHingedBox: con divisores de largo y de alto, cruzan y dan las piezas de las dos', () => {
-      const box = buildHingedBox({ ...HINGED, lengthDividers: 1, heightDividers: 2 });
+      const box = buildHingedBox({ ...HINGED, lengthDividers: 1, widthDividers: 2 });
       assert(box.errors.length === 0, box.errors.join(' | '));
       assert(box.panels.length === 9, `${box.panels.length} piezas, esperaba 9 (6 + 1 + 2)`);
       for (const p of box.panels) assertSimplePolygon(p.points, `${p.id} (buildHingedBox con divisores)`);
@@ -2138,6 +2167,387 @@
           `${name}: esperaba un aviso con "${fragment}", salió: ${r.warnings.join(' | ') || '(ninguno)'}`);
       }
       assert(hingedDouble.warnings.length === 0, `la caja canónica no debería avisar nada: ${hingedDouble.warnings.join(' | ')}`);
+    });
+
+    // ── Divisores fijos con cejilla (spec 2026-10-26) ──
+
+    check('cejilla: modo ausente o desconocido es loose', () => {
+      assert(resolveDividerMode(undefined) === 'loose', 'undefined');
+      assert(resolveDividerMode('xyz') === 'loose', 'xyz');
+      assert(resolveDividerMode('tabbed') === 'tabbed', 'tabbed');
+    });
+
+    check('cejilla: la cejilla va a media altura', () => {
+      // Las ranuras de cruce ahora son verticales: ya no compiten por la altura.
+      assert(near(tabCenter({ dividerHeight: 74, tabWidth: 14.8, t: 3 }), 37), 'H=74');
+      assert(near(tabCenter({ dividerHeight: 120, tabWidth: 14.8, t: 3 }), 60), 'H=120');
+    });
+
+    check('cejilla: sin altura libre devuelve null', () => {
+      // r = 14.8/2 + 3 = 10.4; con H=18 no quedan 2r de alto.
+      const c = tabCenter({ dividerHeight: 18, tabWidth: 14.8, t: 3 });
+      assert(c === null, `c=${c}`);
+    });
+
+    check('cejilla: el recorte superior también empuja la cejilla hacia abajo', () => {
+      // banda prohibida por el recorte: [74−40, 74] expandida 10.4 ⇒ c ≤ 23.6
+      const c = tabCenter({
+        dividerHeight: 74, tabWidth: 14.8, t: 3, notchPositions: [], topCutDepth: 40,
+      });
+      assert(near(c, 23.6, 1e-9), `c=${c}`);
+    });
+
+    check('cejilla: planDividerTabs pone las dos cejillas a la misma altura', () => {
+      const { errors, tabs } = planDividerTabs({
+        dividerMode: 'tabbed', lengthDividers: 1, widthDividers: 1,
+        spanX: 194, spanY: 144, dividerHeight: 74, t: 3, lengthTabWidth: 14.8, widthTabWidth: 16,
+      });
+      assert(errors.length === 0, errors.join('|'));
+      assert(tabs.length.center === tabs.width.center, 'las dos cejillas van a la misma altura');
+      assert(near(tabs.length.center, 37), `centro ${tabs.length.center}`);
+    });
+
+    check('cejilla: planDividerTabs da error sin altura libre', () => {
+      const a = planDividerTabs({
+        dividerMode: 'tabbed', lengthDividers: 1, widthDividers: 1,
+        spanX: 194, spanY: 144, dividerHeight: 18, t: 3, lengthTabWidth: 14.8, widthTabWidth: 16,
+      });
+      assert(a.errors.includes(NO_TAB_ROOM), a.errors.join('|'));
+    });
+
+    check('cejilla: error si entre el extremo y la primera ranura de cruce no queda material', () => {
+      // 20 divisores de ancho en 144 mm: 144/21 ≈ 6.9 < 1.5t = 4.5 no, pero
+      // con 40 quedan 3.5 mm y la raíz de la cejilla se queda sin material.
+      const a = planDividerTabs({
+        dividerMode: 'tabbed', lengthDividers: 1, widthDividers: 40,
+        spanX: 194, spanY: 144, dividerHeight: 74, t: 3, lengthTabWidth: 14.8, widthTabWidth: 16,
+      });
+      assert(a.errors.some((e) => e.includes('FRONT/BACK')), `esperaba el choque en FRONT/BACK, dio: ${a.errors.join('|')}`);
+      const b = planDividerTabs({
+        dividerMode: 'tabbed', lengthDividers: 60, widthDividers: 1,
+        spanX: 194, spanY: 144, dividerHeight: 74, t: 3, lengthTabWidth: 14.8, widthTabWidth: 16,
+      });
+      assert(b.errors.some((e) => e.includes('LEFT/RIGHT')), `esperaba el choque en LEFT/RIGHT, dio: ${b.errors.join('|')}`);
+    });
+
+    check('cejilla: modo loose no valida ni produce cejillas', () => {
+      const c = planDividerTabs({
+        dividerMode: 'loose', lengthDividers: 1, widthDividers: 1,
+        spanX: 194, spanY: 144, dividerHeight: 18, t: 3, lengthTabWidth: 14.8, widthTabWidth: 16,
+      });
+      assert(c.errors.length === 0 && c.tabs === null, 'loose no valida ni produce cejillas');
+    });
+
+    check('cejilla: DIVIDER-L y DIVIDER-W dibujan sus cejillas con kerf', () => {
+      const tabs = {
+        length: { width: 14.8, center: 37, protrude: 3 },
+        width: { width: 16, center: 37, protrude: 3 },
+      };
+      const panels = buildDividerPanels({
+        spanX: 194, spanY: 144, dividerHeight: 74, t: 3, kerf: 0.15,
+        lengthDividers: 1, widthDividers: 1, tabs,
+      });
+      const l = panels.find((p) => p.id === 'divider-l1').points;
+      const h = panels.find((p) => p.id === 'divider-w1').points;
+      const bb = (pts) => ({ x0: Math.min(...pts.map((p) => p.x)), x1: Math.max(...pts.map((p) => p.x)) });
+      assert(near(bb(l).x0, -3) && near(bb(l).x1, 147), 'L sobresale 3 a cada lado');
+      assert(near(bb(h).x0, -3) && near(bb(h).x1, 197), 'W sobresale 3 a cada lado');
+      // cejilla de L: y = 74 − 37 = 37 ± (14.8 + 0.15)/2
+      const lTab = l.filter((p) => near(p.x, -3)).map((p) => p.y).sort((a, b) => a - b);
+      assert(near(lTab[0], 29.525, 1e-9) && near(lTab[1], 44.475, 1e-9), `L tab ${lTab}`);
+      // cejilla de W: y = 74 − 37 = 37 ± (16 + 0.15)/2
+      const hTab = h.filter((p) => near(p.x, 197)).map((p) => p.y).sort((a, b) => a - b);
+      assert(near(hTab[0], 28.925, 1e-9) && near(hTab[1], 45.075, 1e-9), `W tab ${hTab}`);
+    });
+
+    check('cejilla: sin tabs, buildDividerPanels sale igual que hoy', () => {
+      const args = {
+        spanX: 194, spanY: 144, dividerHeight: 74, t: 3, kerf: 0.15, lengthDividers: 2, widthDividers: 1,
+      };
+      const a = buildDividerPanels(args);
+      const b = buildDividerPanels({ ...args, tabs: null });
+      assert(JSON.stringify(a) === JSON.stringify(b), 'tabs null cambia la geometría');
+    });
+
+    check('slotFits: dentro, pegada al borde y contra un obstáculo', () => {
+      const bounds = { x0: 0, y0: 0, x1: 100, y1: 80 };
+      assert(slotFits({ x0: 40, y0: 30, x1: 43, y1: 45 }, { bounds, t: 3 }), 'dentro');
+      assert(!slotFits({ x0: 1, y0: 30, x1: 4, y1: 45 }, { bounds, t: 3 }), 'a 1 mm del borde');
+      assert(!slotFits({ x0: 40, y0: 30, x1: 43, y1: 45 },
+        { bounds, t: 3, obstacles: [{ x0: 0, y0: 46, x1: 100, y1: 50 }] }), 'a 1 mm del canal');
+      assert(slotFits({ x0: 40, y0: 30, x1: 43, y1: 45 },
+        { bounds, t: 3, obstacles: [{ x0: 0, y0: 48, x1: 100, y1: 50 }] }), 'a 3 mm exactos cabe');
+    });
+
+    const TABBED = { ...BASE, lengthDividers: 1, widthDividers: 1, dividerMode: 'tabbed' };
+    check('cejilla simple: ranuras de FRONT/BACK en la altura corrida', () => {
+      const b = buildBox(TABBED);
+      assert(b.errors.length === 0, b.errors.join('|'));
+      for (const id of ['front', 'back']) {
+        const f = b.panels.find((p) => p.id === id).features.find((x) => x.id === 'divider-slot-l1');
+        const bb = featureBounds(f);
+        assert(near(bb.x0, 98.575, 1e-9) && near(bb.x1, 101.425, 1e-9), `${id} x ${bb.x0}..${bb.x1}`);
+        assert(near(bb.y0, 32.675, 1e-9) && near(bb.y1, 47.325, 1e-9), `${id} y ${bb.y0}..${bb.y1}`);
+      }
+    });
+    check('cejilla simple: la ranura de LEFT/RIGHT es vertical y va a la misma altura que la de FRONT/BACK', () => {
+      const b = buildBox(TABBED);
+      const front = featureBounds(b.panels.find((p) => p.id === 'front').features.find((x) => x.id === 'divider-slot-l1'));
+      for (const id of ['left', 'right']) {
+        const bb = featureBounds(b.panels.find((p) => p.id === id).features.find((x) => x.id === 'divider-slot-w1'));
+        assert(bb.y1 - bb.y0 > bb.x1 - bb.x0, `${id}: la ranura debería ser más alta que ancha, dio ${bb.x1 - bb.x0}×${bb.y1 - bb.y0}`);
+        assert(near((bb.y0 + bb.y1) / 2, (front.y0 + front.y1) / 2, 1e-9), `${id}: debería ir a la misma altura que FRONT`);
+      }
+    });
+    check('cejilla simple: tapa plana usa el alto de pared Ho − t', () => {
+      const b = buildBox({ ...TABBED, lidType: 'flat', widthDividers: 0 });
+      assert(b.errors.length === 0, b.errors.join('|'));
+      const front = b.panels.find((p) => p.id === 'front');
+      const bb = featureBounds(front.features.find((x) => x.id === 'divider-slot-l1'));
+      assert(near((bb.y0 + bb.y1) / 2, 37, 1e-9), `centro ${(bb.y0 + bb.y1) / 2}`);
+    });
+    check('cejilla: modo loose deja las cuatro cajas idénticas a sin parámetro', () => {
+      const cfgs = [
+        { ...BASE, lengthDividers: 2, widthDividers: 1 },
+        { ...SLIDE, lengthDividers: 1, widthDividers: 1 },
+        { ...SUPPORTS, lengthDividers: 1, widthDividers: 1 },
+        { ...HINGED, lengthDividers: 1, widthDividers: 1 },
+      ];
+      for (const cfg of cfgs) {
+        const build = cfg.lidType === 'hinged' ? buildHingedBox : buildAny;
+        const a = build(cfg);
+        const b = build({ ...cfg, dividerMode: 'loose' });
+        assert(JSON.stringify(a.panels) === JSON.stringify(b.panels), `${cfg.lidType} cambia`);
+      }
+    });
+
+    const SLIDE_TABBED = { ...SLIDE, lengthDividers: 1, widthDividers: 0, dividerMode: 'tabbed' };
+    check('cejilla deslizante: la ranura de FRONT y BACK queda a la misma altura desde el piso', () => {
+      const b = buildSlidingBox(SLIDE_TABBED);
+      assert(b.errors.length === 0, b.errors.join('|'));
+      const front = b.panels.find((p) => p.id === 'front');
+      const back = b.panels.find((p) => p.id === 'back');
+      const cy = (panel) => {
+        const bb = featureBounds(panel.features.find((x) => x.id === 'divider-slot-l1'));
+        return (bb.y0 + bb.y1) / 2;
+      };
+      const c = b.dividerTabs.length.center;
+      assert(near(front.height - cy(front), 3 + c, 1e-9), 'FRONT');
+      assert(near(back.height - cy(back), 3 + c, 1e-9), 'BACK');
+      const bb = featureBounds(front.features.find((x) => x.id === 'divider-slot-l1'));
+      assert(near(bb.y1 - bb.y0, b.joints.z.width - 0.16, 1e-9), 'ancho = junta del frente − kerf');
+    });
+    check('cejilla deslizante: divisores de ancho muy juntos dan error de ranura', () => {
+      // Con 12 estantes quedan a 74/13 ≈ 5.7 mm: entre dos ranuras de 3 mm no
+      // queda t de material. El canal nunca es el que choca aquí: el divisor
+      // termina justo en el piso del canal (77), así que el estante de arriba
+      // queda siempre a una separación de estante de él, y la separación entre
+      // ranuras vecinas salta antes. El choque con obstáculos lo prueba slotFits.
+      const b = buildSlidingBox({ ...SLIDE, widthDividers: 12, dividerMode: 'tabbed' });
+      assert(b.errors.some((e) => e.startsWith('La ranura de un divisor en')), b.errors.join('|'));
+    });
+
+    const SUP_TABBED = { ...SUPPORTS, lengthDividers: 1, widthDividers: 1, dividerMode: 'tabbed' };
+    check('cejilla soportes: ranura de FRONT en x = 2t + xᵢ', () => {
+      const b = buildSlidingSupportBox(SUP_TABBED);
+      assert(b.errors.length === 0, b.errors.join('|'));
+      const bb = featureBounds(b.panels.find((p) => p.id === 'front').features.find((x) => x.id === 'divider-slot-l1'));
+      assert(near((bb.x0 + bb.x1) / 2, 50, 1e-9), `centro ${(bb.x0 + bb.x1) / 2}`);
+      assert(near(bb.y1 - bb.y0, b.joints.zFront.width - 0.16, 1e-9), 'ancho = junta del frente − kerf');
+    });
+    check('cejilla soportes: el divisor de ancho sobresale 2t y SUPPORT y lateral quedan alineados', () => {
+      const b = buildSlidingSupportBox(SUP_TABBED);
+      const h = b.panels.find((p) => p.id === 'divider-w1').points;
+      assert(near(Math.min(...h.map((p) => p.x)), -6), 'sobresale 2t');
+      const z = (panel, floorOffset) => {
+        const bb = featureBounds(panel.features.find((x) => x.id === 'divider-slot-w1'));
+        return panel.height - (bb.y0 + bb.y1) / 2 - floorOffset;
+      };
+      const left = b.panels.find((p) => p.id === 'left');
+      const sup = b.panels.find((p) => p.id === 'support-1');
+      assert(near(z(left, 3), z(sup, 0), 1e-9), 'misma altura en lateral y SUPPORT');
+    });
+
+    const HINGED_TABBED = { ...HINGED, lengthDividers: 1, widthDividers: 1, dividerMode: 'tabbed' };
+    check('cejilla bisagra: la ranura del lateral cuenta el alto del poste', () => {
+      const b = buildHingedBox(HINGED_TABBED);
+      assert(b.errors.length === 0, b.errors.join('|'));
+      const left = b.panels.find((p) => p.id === 'left');
+      const bb = featureBounds(left.features.find((x) => x.id === 'divider-slot-w1'));
+      const zFromFloor = left.height - (bb.y0 + bb.y1) / 2 - 3;
+      const esperado = b.dividerTabs.width.center;
+      assert(near(zFromFloor, esperado, 1e-9), `z ${zFromFloor} vs ${esperado}`);
+      assert(left.features.some((x) => x.id === 'hinge-hole'), 'conserva el agujero de bisagra');
+    });
+    check('cejilla bisagra: la cejilla del divisor de largo evita el recorte superior', () => {
+      const b = buildHingedBox({ ...HINGED_TABBED, widthDividers: 0 });
+      const c = b.dividerTabs.length.center;
+      const r = b.dividerTabs.length.width / 2 + 3;
+      const H = b.inner.height;
+      assert(c + r <= H - (b.dividerTopCutDepth ?? 0) + 1e-9, 'la banda no entra al recorte');
+    });
+
+    check('bisagra: un divisor de ancho dentro de la franja que barre la tapa da error', () => {
+      const ok = buildHingedBox({ ...HINGED, lengthDividers: 1, widthDividers: 1 });
+      assert(ok.errors.length === 0, `1 y 1 debería salir: ${ok.errors.join(' | ')}`);
+      const malo = buildHingedBox({ ...HINGED, lengthDividers: 0, widthDividers: 60 });
+      assert(malo.errors.includes(sweptBandError()),
+        `esperaba el error de la franja barrida, dio: ${malo.errors.join(' | ') || '(ninguno)'}`);
+    });
+
+    check('la caja de Dani (100x100x80, t=2.75, soportes) ya no produce compartimentos tapados', () => {
+      const box = buildSlidingSupportBox({
+        length: 100, width: 100, height: 80, thickness: 2.75, kerf: 0.16,
+        dimensionMode: 'outer', tabWidth: 10, lengthDividers: 1, widthDividers: 1,
+      });
+      assert(box.errors.length === 0, box.errors.join(' | '));
+      assert(!box.panels.some((p) => p.id.startsWith('divider-h')), 'no debería quedar ninguna pieza DIVIDER-H');
+      const l = boundingBox(box.panels.find((p) => p.id === 'divider-l1').points);
+      const w = boundingBox(box.panels.find((p) => p.id === 'divider-w1').points);
+      assert(near(l.height, w.height), `los dos divisores deberían medir lo mismo de alto: ${l.height} y ${w.height}`);
+      // Ningún divisor puede quedar por debajo del alto interior: si fuera un
+      // estante, su "alto" sería el ancho de la caja y taparía los de abajo.
+      assert(near(l.height, box.inner.height), `alto ${l.height} vs interior ${box.inner.height}`);
+    });
+
+    // ── Divisores en la tapa con bisagra doble (spec 2026-10-31) ──
+
+    check('divisores: topCornerCutOn width recorta la placa de ancho e intercambia los cantos', () => {
+      const args = {
+        spanX: 144, spanY: 44, dividerHeight: 114, t: 3, kerf: 0.1,
+        lengthDividers: 1, widthDividers: 1, topCornerCut: { width: 10, depth: 4 },
+      };
+      const porDefecto = buildDividerPanels(args);
+      const enAncho = buildDividerPanels({ ...args, topCornerCutOn: 'width' });
+      const tieneRecorte = (panels, id) => panels.find((p) => p.id === id).points.some((p) => near(p.y, 4));
+      assert(tieneRecorte(porDefecto, 'divider-l1'), 'por defecto el recorte va en la placa de largo');
+      assert(tieneRecorte(enAncho, 'divider-w1'), 'con "width" el recorte va en la placa de ancho');
+      const w = enAncho.find((p) => p.id === 'divider-w1').points;
+      assert(w.some((p) => near(p.y, 114)), 'la placa de ancho ahora entalla desde abajo');
+      const l = enAncho.find((p) => p.id === 'divider-l1').points;
+      assert(l.some((p) => near(p.y, 57)), 'la placa de largo ahora entalla desde arriba');
+      for (const p of enAncho) assertSimplePolygon(p.points, p.id);
+    });
+
+    check('divisores: sin topCornerCutOn, nada cambia (regresión)', () => {
+      const args = {
+        spanX: 144, spanY: 44, dividerHeight: 114, t: 3, kerf: 0.1, lengthDividers: 2, widthDividers: 1,
+      };
+      assert(JSON.stringify(buildDividerPanels(args))
+        === JSON.stringify(buildDividerPanels({ ...args, topCornerCutOn: 'length' })),
+        'el valor por defecto debería ser "length"');
+    });
+
+    check('bisagra: la franja barrida se mide por su alcance horizontal, no por el hundimiento', () => {
+      const base = buildHingedBox({ ...HINGED, lengthDividers: 0, widthDividers: 1 });
+      const ancho = base.dividerTopCutWidth;
+      const hondo = base.dividerTopCutDepth;
+      assert(Number.isFinite(ancho) && ancho > hondo, `alcance ${ancho} debería superar al hundimiento ${hondo}`);
+      // Tantos divisores de ancho que el primero cae entre el hundimiento y el
+      // alcance: con el umbral viejo pasaba, con el bueno tiene que dar error.
+      const n = Math.round(base.inner.width / ((hondo + ancho) / 2)) - 1;
+      const sep = base.inner.width / (n + 1);
+      assert(sep > hondo && sep < ancho, `separación ${sep} debería caer entre ${hondo} y ${ancho}`);
+      const malo = buildHingedBox({ ...HINGED, lengthDividers: 0, widthDividers: n });
+      assert(malo.errors.includes(sweptBandError()),
+        `con ${n} divisores de ancho uno cae en la franja: ${malo.errors.join(' | ') || '(sin errores)'}`);
+    });
+
+    check('bisagra doble: acepta divisores de largo y de ancho', () => {
+      const b = buildHingedDoubleBox({ ...HINGED_DOUBLE, lengthDividers: 1, widthDividers: 1 });
+      assert(b.errors.length === 0, b.errors.join(' | '));
+      assert(b.panels.some((p) => p.id === 'divider-l1'), 'falta DIVIDER-L1');
+      assert(b.panels.some((p) => p.id === 'divider-w1'), 'falta DIVIDER-W1');
+      const l = boundingBox(b.panels.find((p) => p.id === 'divider-l1').points);
+      const w = boundingBox(b.panels.find((p) => p.id === 'divider-w1').points);
+      assert(near(l.height, w.height), `alturas distintas: ${l.height} y ${w.height}`);
+    });
+
+    check('bisagra doble: el recorte de esquina va en el divisor de ancho, no en el de largo', () => {
+      const b = buildHingedDoubleBox({ ...HINGED_DOUBLE, lengthDividers: 1, widthDividers: 1 });
+      const w = b.panels.find((p) => p.id === 'divider-w1').points;
+      assert(w.some((p) => near(p.y, b.dividerTopCutDepth)),
+        'la placa de ancho debería traer los recortes de esquina');
+    });
+
+    check('bisagra doble: sin divisores sale idéntica a no pasar el parámetro (regresión)', () => {
+      const sin = buildHingedDoubleBox({ ...HINGED_DOUBLE });
+      const cero = buildHingedDoubleBox({ ...HINGED_DOUBLE, lengthDividers: 0, widthDividers: 0 });
+      assert(JSON.stringify(sin.panels) === JSON.stringify(cero.panels), 'los paneles deberían ser idénticos');
+    });
+
+    check('bisagra doble: un divisor de largo en la franja barrida da error', () => {
+      const b = buildHingedDoubleBox({ ...HINGED_DOUBLE, lengthDividers: 60, widthDividers: 0 });
+      assert(b.errors.includes(sweptBandLengthError()),
+        `esperaba el error de la franja: ${b.errors.join(' | ') || '(sin errores)'}`);
+    });
+
+    check('bisagra doble: con cejilla, las ranuras conviven con agujeros y muesca', () => {
+      const b = buildHingedDoubleBox({
+        ...HINGED_DOUBLE, lengthDividers: 1, widthDividers: 1, dividerMode: 'tabbed',
+      });
+      assert(b.errors.length === 0, b.errors.join(' | '));
+      const front = b.panels.find((p) => p.id === 'front');
+      assert(front.features.some((f) => f.id === 'divider-slot-l1'), 'falta la ranura en FRONT');
+      assert(front.features.some((f) => f.id && f.id.startsWith('hinge-hole')), 'FRONT conserva sus agujeros');
+      assert(front.features.every((f) => f.id), 'ningún obstáculo auxiliar debería colarse como corte');
+      const left = b.panels.find((p) => p.id === 'left');
+      assert(left.features.some((f) => f.id === 'divider-slot-w1'), 'falta la ranura en LEFT');
+    });
+
+    // ── Agarradera de la tapa deslizante (spec 2026-10-31) ──
+
+    check('agarradera: la tapa deslizante lleva la lengüeta centrada y sobresaliendo', () => {
+      const pts = slidingLidPoints({ width: 100, depth: 80, handleWidth: 20, handleDepth: 8, radius: 2 });
+      const ys = pts.map((p) => p.y);
+      assert(near(Math.min(...ys), -8), `la punta debería estar en y=-8, dio ${Math.min(...ys)}`);
+      assert(near(Math.max(...ys), 80), 'el canto del fondo no cambia');
+      const tip = pts.filter((p) => p.y < 0).map((p) => p.x);
+      assert(near((Math.min(...tip) + Math.max(...tip)) / 2, 50, 1e-6), 'la lengüeta debería estar centrada');
+      const xs = pts.map((p) => p.x);
+      assert(near(Math.min(...xs), 0) && near(Math.max(...xs), 100), 'la lengüeta no cambia el ancho de la tapa');
+      assertSimplePolygon(pts, 'tapa deslizante con manija');
+    });
+
+    check('agarradera: validateSlidingHandle atrapa los casos imposibles', () => {
+      assert(validateSlidingHandle({ handleWidth: 20, handleDepth: 8, lidWidth: 100, t: 3 }).length === 0, 'cabe de sobra');
+      assert(validateSlidingHandle({ handleWidth: 20, handleDepth: 8, lidWidth: 24, t: 3 }).length === 1, '20 + 2x3 no cabe en 24');
+      assert(validateSlidingHandle({ handleWidth: 0, handleDepth: 8, lidWidth: 100, t: 3 }).length === 1, 'ancho 0');
+      assert(validateSlidingHandle({ handleWidth: 20, handleDepth: -1, lidWidth: 100, t: 3 }).length === 1, 'profundidad negativa');
+      assert(validateSlidingHandle({ handleWidth: NaN, handleDepth: 8, lidWidth: 100, t: 3 }).length === 1, 'ancho vacío');
+    });
+
+    check('agarradera: los dos métodos de tapa deslizante la llevan', () => {
+      for (const [nombre, box] of [['canal', buildSlidingBox(SLIDE)], ['soportes', buildSlidingSupportBox(SUPPORTS)]]) {
+        assert(box.errors.length === 0, `${nombre}: ${box.errors.join('|')}`);
+        const lid = box.panels.find((p) => p.id === 'lid');
+        assert(lid.points.some((p) => p.y < 0), `${nombre}: la tapa debería traer la lengüeta`);
+        const xs = lid.points.map((p) => p.x);
+        assert(near(Math.min(...xs), 0) && near(Math.max(...xs), lid.width),
+          `${nombre}: la lengüeta no debe cambiar el ancho de la tapa`);
+      }
+    });
+
+    check('agarradera: una tapa más angosta que la manija da error', () => {
+      const b = buildSlidingBox({ ...SLIDE, length: 24 });
+      assert(b.errors.some((e) => e.includes('no deja material a los costados')), b.errors.join('|') || '(sin errores)');
+    });
+
+    check('agarradera: la tapa con bisagra conserva su manija (regresión)', () => {
+      const b = buildHingedBox(HINGED);
+      assert(b.errors.length === 0, b.errors.join('|'));
+      const lid = b.panels.find((p) => p.id === 'lid');
+      assert(lid.points.some((p) => p.y < 0), 'la manija de la bisagra sigue ahí');
+    });
+
+    check('cejilla: una caja muy baja no deja espacio para la cejilla', () => {
+      // 100×80×12, t=3: el alto interior es 6 mm y la cejilla necesita
+      // tabWidth/2 + t de margen arriba y abajo. No cabe.
+      const b = buildBox({
+        length: 100, width: 80, height: 12, thickness: 3, kerf: 0.15, tabWidth: 6,
+        dimensionMode: 'outer', lidType: 'finger', widthDividers: 1, dividerMode: 'tabbed',
+      });
+      assert(b.errors.includes(NO_TAB_ROOM), b.errors.join('|') || '(sin errores)');
     });
 
     const failed = results.filter((r) => !r.ok);

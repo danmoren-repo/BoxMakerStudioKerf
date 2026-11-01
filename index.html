@@ -184,7 +184,10 @@
                 dura si es poca, bamboleante si es mucha.
               </p>
             </div>
+          </div>
 
+          <div class="field" id="handleFields" hidden>
+            <span class="field-label">Manija</span>
             <div class="field">
               <label for="handleWidth">Ancho de la manija <span class="unit">mm</span></label>
               <input type="number" id="handleWidth" name="handleWidth" value="20" step="1" min="1" inputmode="decimal">
@@ -198,6 +201,14 @@
                 <label for="handleDepthAuto">Automática (grosor + 5)</label>
               </div>
             </div>
+            <p class="help">
+              La lengüeta por donde se agarra la tapa. Con la tapa con
+              bisagra sobresale del frente y entra en una muesca de la
+              pared; con la tapa deslizante sobresale al aire, por delante
+              de la caja, y sirve para tirar de ella. Ojo: con la tapa
+              deslizante la caja cerrada ocupa lo que dice "Exterior" MÁS
+              esta profundidad hacia el frente.
+            </p>
           </div>
 
           <div class="field flat-fields" id="flatFields" hidden>
@@ -233,16 +244,27 @@
               <input type="number" id="lengthDividers" name="lengthDividers" value="0" step="1" min="0" inputmode="numeric">
             </div>
             <div class="field">
-              <label for="heightDividers">Divisores de alto</label>
-              <input type="number" id="heightDividers" name="heightDividers" value="0" step="1" min="0" inputmode="numeric">
+              <label for="widthDividers">Divisores de ancho</label>
+              <input type="number" id="widthDividers" name="widthDividers" value="0" step="1" min="0" inputmode="numeric">
+            </div>
+            <div class="field" id="dividerModeField" hidden>
+              <label for="dividerMode">Tipo de divisor</label>
+              <select id="dividerMode" name="dividerMode">
+                <option value="loose" selected>Sueltos (deslizables)</option>
+                <option value="tabbed">Fijos con cejilla</option>
+              </select>
             </div>
             <p class="help">
               Parten el interior en compartimentos: "de largo" agrega
-              columnas a lo largo del eje Largo, "de alto" agrega capas
-              apiladas en altura. Se reparten solos, a distancias iguales.
-              Usando los dos tipos a la vez se cruzan con una ranura a
-              media madera y quedan sueltos a presión, sin espigas hacia
-              las paredes.
+              placas que parten el Largo en columnas, "de ancho" agrega
+              placas que parten el Ancho en filas. Se reparten solas, a
+              distancias iguales. Todas van del piso hasta justo debajo de
+              la tapa, así que a cualquier compartimento se le llega desde
+              arriba; usando los dos tipos a la vez se cruzan con una
+              ranura a media madera y arman una rejilla. "Sueltos" quedan
+              a presión y se pueden sacar; "Fijos con cejilla" llevan una
+              cejilla en cada extremo que entra en una ranura de la pared,
+              así no hace falta pegarlos.
             </p>
           </div>
         </fieldset>

@@ -27,6 +27,7 @@ const windowFrameEl = document.getElementById('windowFrame');
 const windowFrameAutoEl = document.getElementById('windowFrameAuto');
 const engraveNote = document.getElementById('engraveNote');
 const hingedFields = document.getElementById('hingedFields');
+const handleFields = document.getElementById('handleFields');
 const pegSizeEl = document.getElementById('pegSize');
 const pegSizeAutoEl = document.getElementById('pegSizeAuto');
 const hingeClearanceEl = document.getElementById('hingeClearance');
@@ -38,8 +39,7 @@ const gripEl = document.getElementById('grip');
 const gripFields = document.getElementById('gripFields');
 const gripDiameterEl = document.getElementById('gripDiameter');
 const gripStemSpanEl = document.getElementById('gripStemSpan');
-const lengthDividersEl = document.getElementById('lengthDividers');
-const heightDividersEl = document.getElementById('heightDividers');
+const dividerModeField = document.getElementById('dividerModeField');
 
 // Cada tipo de tapa trae su generador y su cálculo de espiga automática: el
 // tramo de junta más corto no es el mismo en una caja cerrada que en una con
@@ -75,8 +75,13 @@ function readParams() {
     lidType,
     tabWidth: number('tabWidth'),
     lengthDividers: number('lengthDividers'),
-    heightDividers: number('heightDividers'),
+    widthDividers: number('widthDividers'),
+    dividerMode: form.elements.dividerMode.value,
   };
+
+  // El tipo de divisor sólo importa si hay al menos uno.
+  const anyDivider = (params.lengthDividers || 0) > 0 || (params.widthDividers || 0) > 0;
+  dividerModeField.hidden = !anyDivider;
 
   slidingFields.hidden = !sliding;
 
@@ -119,8 +124,16 @@ function readParams() {
     if (pegSizeAutoEl.checked) pegSizeEl.value = round(params.thickness, 2);
     params.pegSize = parseFloat(pegSizeEl.value);
     params.hingeClearance = number('hingeClearance');
-    params.handleWidth = number('handleWidth');
+  }
 
+  // La manija la llevan la tapa con bisagra (entra en una muesca del frente)
+  // y la deslizante (sobresale al aire para poder tirar de ella). Mismos
+  // campos y mismos valores por defecto en las dos.
+  const handled = hinged || sliding;
+  handleFields.hidden = !handled;
+
+  if (handled) {
+    params.handleWidth = number('handleWidth');
     handleDepthEl.disabled = handleDepthAutoEl.checked;
     if (handleDepthAutoEl.checked) handleDepthEl.value = round(params.thickness + 5, 1);
     params.handleDepth = parseFloat(handleDepthEl.value);
@@ -182,25 +195,32 @@ function recompute() {
     ? ` (alto real con reborde: ${round(box.realOuterHeight, 1)})`
     : '';
   const Nc = Number.isFinite(params.lengthDividers) ? params.lengthDividers : 0;
-  const Ns = Number.isFinite(params.heightDividers) ? params.heightDividers : 0;
+  const Ns = Number.isFinite(params.widthDividers) ? params.widthDividers : 0;
   const compartments = (Nc > 0 || Ns > 0) ? ` · Compartimentos ${Nc + 1} × ${Ns + 1}` : '';
   summaryEl.textContent =
     `Exterior ${dims(box.outer)}${realHeight} · Interior ${dims(box.inner)} · ` +
     `Hoja ${currentSvg.getAttribute('width')} × ${currentSvg.getAttribute('height')} · ` +
     `Espigas ${box.joints.x.tabs}/${box.joints.y.tabs}/${box.joints.z.tabs} por junta (largo/ancho/alto)${compartments}`;
 
+  // Las notas de armado se suman: una caja con soportes y divisores fijos
+  // necesita las dos.
+  const notes = [];
   if (box.groove) {
-    engraveNote.textContent =
+    notes.push(
       `Los rectángulos rojos se vacían a ${round(box.groove.depth, 2)} mm de profundidad: ` +
-      'no son cortes pasantes. En LightBurn entran en su propia capa por color.';
-    engraveNote.hidden = false;
+      'no son cortes pasantes. En LightBurn entran en su propia capa por color.',
+    );
   } else if (box.supports) {
-    engraveNote.textContent =
-      'Pega SUPPORT 1 y 2 por dentro de LEFT y RIGHT, apoyados sobre BOTTOM, antes de cerrar la caja con TOP.';
-    engraveNote.hidden = false;
-  } else {
-    engraveNote.hidden = true;
+    notes.push('Pega SUPPORT 1 y 2 por dentro de LEFT y RIGHT, apoyados sobre BOTTOM, antes de cerrar la caja con TOP.');
   }
+  if (box.dividerTabs) {
+    notes.push('Arma los divisores junto con las paredes: mete sus cejillas en las ranuras y pega sólo paredes y tapas.');
+    const key = builderKey(params);
+    if (key === 'hinged') notes.push('Monta la tapa al poner LEFT y RIGHT.');
+    if (key === 'slidingSupports') notes.push('Pega cada SUPPORT a su lateral usando un divisor de ancho en su ranura como guía.');
+  }
+  engraveNote.textContent = notes.join(' ');
+  engraveNote.hidden = notes.length === 0;
 }
 
 function debounce(fn, delay) {

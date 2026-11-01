@@ -8,9 +8,11 @@ import {
   validateTabsVsKerf,
 } from './shared.js';
 import {
-  buildDividerPanels, validateDividers, dividerWarnings,
+  buildDividerPanels, validateDividers, dividerWarnings, evenPositions,
+  featureBounds, planDividerTabs, slotFits, slotTooClose,
 } from './dividers.js';
-import { lidThicknessFor } from './sliding-box.js';
+import { lidThicknessFor, slidingLidPoints, validateSlidingHandle } from './sliding-box.js';
+import { handleWidthFor, handleDepthFor, handleCornerRadiusFor } from './hinged-box.js';
 
 const DEFAULT_CLEARANCE = 0.2;
 // Margen de seguridad del marco de la ventana, por encima del grosor que ya
@@ -73,14 +75,20 @@ export function buildSlidingSupportBox(params) {
   const usableX = spanX - 2 * t; // entre soportes
 
   const lengthDividers = Number.isFinite(params.lengthDividers) ? params.lengthDividers : 0;
-  const heightDividers = Number.isFinite(params.heightDividers) ? params.heightDividers : 0;
+  const widthDividers = Number.isFinite(params.widthDividers) ? params.widthDividers : 0;
 
   const errors = validate({
     Lo, Wo, Ho, t, tl, h, m, kerf, tabWidth,
     spanX, spanY, spanZ, spanZFront, frontHeight, supportHeight,
   });
   if (errors.length === 0) {
-    errors.push(...validateDividers({ lengthDividers, heightDividers, spanY, t }));
+    errors.push(...validateDividers({ lengthDividers, widthDividers, dividerHeight: innerHeight, t }));
+  }
+  const lidW = spanX - 2 * h;
+  const hw = handleWidthFor(params);
+  const hd = handleDepthFor(params);
+  if (errors.length === 0) {
+    errors.push(...validateSlidingHandle({ handleWidth: hw, handleDepth: hd, lidWidth: lidW, t }));
   }
   if (errors.length > 0) return { errors, warnings: [], panels: [] };
 
@@ -90,6 +98,59 @@ export function buildSlidingSupportBox(params) {
     z: jointSegments(spanZ, tabWidth),
     zFront: jointSegments(spanZFront, tabWidth),
   };
+
+  const tabPlan = planDividerTabs({
+    dividerMode: params.dividerMode, lengthDividers, widthDividers,
+    spanX: usableX, spanY, dividerHeight: innerHeight, t,
+    lengthTabWidth: joints.zFront.width, widthTabWidth: joints.y.width,
+    widthProtrude: 2 * t,
+  });
+  errors.push(...tabPlan.errors);
+  if (errors.length > 0) return { errors, warnings: [], panels: [] };
+  const dividerTabs = tabPlan.tabs;
+
+  // El divisor de ancho atraviesa soporte y lateral: ambas ranuras deben
+  // conservar la misma altura física, aunque sus orígenes de pieza sean distintos.
+  const slotsFor = (label, width, height, slots) => {
+    const features = [];
+    for (const rect of slots) {
+      if (!slotFits(rect, {
+        bounds: { x0: 0, y0: 0, x1: width, y1: height }, t,
+        obstacles: features.map(featureBounds),
+      })) {
+        errors.push(slotTooClose(label, t));
+        return [];
+      }
+      features.push(rectHoleFeature({ id: rect.id, x: rect.x0, y: rect.y0,
+        width: rect.x1 - rect.x0, height: rect.y1 - rect.y0, kerf }));
+    }
+    return features;
+  };
+  const lengthSlots = dividerTabs?.length ? evenPositions(usableX, lengthDividers).map((x, i) => ({
+    id: `divider-slot-l${i + 1}`,
+    x0: 2 * t + x - t / 2, x1: 2 * t + x + t / 2,
+  })) : [];
+  const widthSlots = dividerTabs?.width ? evenPositions(spanY, widthDividers).map((y, i) => ({
+    id: `divider-slot-w${i + 1}`,
+    x0: y - t / 2, x1: y + t / 2,
+  })) : [];
+  const lengthSlotsAt = (height) => lengthSlots.map((slot) => ({ ...slot,
+    y0: height - t - dividerTabs.length.center - joints.zFront.width / 2,
+    y1: height - t - dividerTabs.length.center + joints.zFront.width / 2,
+  }));
+  const sideSlots = widthSlots.map((slot) => ({ ...slot,
+    y0: Ho - t - dividerTabs.width.center - joints.y.width / 2,
+    y1: Ho - t - dividerTabs.width.center + joints.y.width / 2,
+  }));
+  const supportSlots = widthSlots.map((slot) => ({ ...slot,
+    y0: supportHeight - dividerTabs.width.center - joints.y.width / 2,
+    y1: supportHeight - dividerTabs.width.center + joints.y.width / 2,
+  }));
+  const frontFeatures = dividerTabs ? slotsFor('FRONT', Lo, frontHeight, lengthSlotsAt(frontHeight)) : [];
+  const backFeatures = dividerTabs ? slotsFor('BACK', Lo, Ho, lengthSlotsAt(Ho)) : [];
+  const sideFeatures = dividerTabs ? slotsFor('LEFT/RIGHT', spanY, Ho, sideSlots) : [];
+  const supportFeatures = dividerTabs ? slotsFor('SUPPORT', spanY, supportHeight, supportSlots) : [];
+  if (errors.length > 0) return { errors, warnings: [], panels: [] };
 
   // Toda junta arranca y termina con material en la pieza hembra, para que las
   // esquinas no queden colgando de medio kerf.
@@ -115,6 +176,7 @@ export function buildSlidingSupportBox(params) {
         [frontEdge]: { gender: 'male', jointStart: frontJointStart, jointSpan: spanZFront, ...SOLID },
         [backEdge]: { gender: 'male', jointStart: t, jointSpan: spanZ, ...SOLID },
       },
+      ...(sideFeatures.length ? { features: sideFeatures } : {}),
     };
   };
 
@@ -161,6 +223,7 @@ export function buildSlidingSupportBox(params) {
     width: spanY,
     height: supportHeight,
     edges: plainEdges,
+    ...(supportFeatures.length ? { features: supportFeatures } : {}),
   });
 
   const specs = [
@@ -183,6 +246,7 @@ export function buildSlidingSupportBox(params) {
         left: { gender: 'female', jointStart: t, jointSpan: spanZFront, ...SOLID },
         right: { gender: 'female', jointStart: t, jointSpan: spanZFront, ...SOLID },
       },
+      ...(frontFeatures.length ? { features: frontFeatures } : {}),
     },
     sideWall('left', 'LEFT', 'left'),
     top,
@@ -195,6 +259,7 @@ export function buildSlidingSupportBox(params) {
         left: { gender: 'female', jointStart: t, jointSpan: spanZ, ...SOLID },
         right: { gender: 'female', jointStart: t, jointSpan: spanZ, ...SOLID },
       },
+      ...(backFeatures.length ? { features: backFeatures } : {}),
     },
     sideWall('right', 'RIGHT', 'right'),
     support(1),
@@ -203,17 +268,25 @@ export function buildSlidingSupportBox(params) {
     // fondo a la cara exterior de FRONT.
     {
       id: 'lid', label: 'LID',
-      width: spanX - 2 * h,
+      width: lidW,
       height: spanY - h + t,
       edges: plainEdges,
+      points: slidingLidPoints({
+        width: lidW,
+        depth: spanY - h + t,
+        handleWidth: hw,
+        handleDepth: hd,
+        radius: handleCornerRadiusFor(params),
+      }),
     },
   ];
 
   const material = { thickness: t, kerf, tabWidth };
-  const panels = specs.map((spec) => ({ ...spec, points: panelOutline(spec, material) }));
+  const panels = specs.map((spec) => ({ ...spec, points: spec.points ?? panelOutline(spec, material) }));
   const lid = panels.find((panel) => panel.id === 'lid');
   panels.push(...buildDividerPanels({
-    spanX: usableX, spanY, dividerHeight: innerHeight, t, kerf, lengthDividers, heightDividers,
+    spanX: usableX, spanY, dividerHeight: innerHeight, t, kerf, lengthDividers, widthDividers,
+    tabs: dividerTabs,
   }));
 
   return {
@@ -226,13 +299,14 @@ export function buildSlidingSupportBox(params) {
         t, kerf, tabWidth, h, tl, m, spanX,
         lidWidth: lid.width, lidDepth: lid.height,
       }),
-      ...dividerWarnings({ lengthDividers, heightDividers, spanX: usableX, dividerHeight: innerHeight, t }),
+      ...dividerWarnings({ lengthDividers, widthDividers, spanX: usableX, spanY, t }),
     ],
     outer: { length: Lo, width: Wo, height: Ho },
     inner: { length: usableX, width: spanY, height: innerHeight },
     lid: { thickness: tl, width: lid.width, depth: lid.height },
     supports: { width: spanY, height: supportHeight, count: 2 },
     window: { width: spanX - 2 * m, depth: spanY - 2 * m, frame: m },
+    dividerTabs,
   };
 }
 

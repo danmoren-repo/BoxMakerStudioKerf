@@ -1,4 +1,4 @@
-import { holeFeature, panelOutline } from '../core/panel.js';
+import { holeFeature, panelOutline, rectHoleFeature } from '../core/panel.js';
 import {
   autoTabWidthFromSpans,
   commonWarnings,
@@ -9,7 +9,8 @@ import {
   validateTabsVsKerf,
 } from './shared.js';
 import {
-  buildDividerPanels, validateDividers, dividerWarnings,
+  buildDividerPanels, validateDividers, dividerWarnings, evenPositions,
+  featureBounds, planDividerTabs, slotFits, slotTooClose, sweptBandError,
 } from './dividers.js';
 
 // La tapa puede ser de otro grosor que la caja. Sin valor, copia la pared.
@@ -172,14 +173,14 @@ export function buildHingedBox(params) {
   // dos arcos entre sí y rompe el contorno, así que se acota a la manija.
   const handleRadius = Math.min(hr, handleW / 2, handleOut / 2);
   const lengthDividers = Number.isFinite(params.lengthDividers) ? params.lengthDividers : 0;
-  const heightDividers = Number.isFinite(params.heightDividers) ? params.heightDividers : 0;
+  const widthDividers = Number.isFinite(params.widthDividers) ? params.widthDividers : 0;
 
   const errors = validate({
     Lo, Wo, Ho, t, tl, ps, hc, kerf, tabWidth, spanX, spanY, spanZ, hw, hd, lidW,
     swingRadius, innerHeight,
   });
   if (errors.length === 0) {
-    errors.push(...validateDividers({ lengthDividers, heightDividers, spanY, t }));
+    errors.push(...validateDividers({ lengthDividers, widthDividers, dividerHeight: innerHeight, t }));
   }
   if (errors.length > 0) return { errors, warnings: [], panels: [] };
 
@@ -258,10 +259,12 @@ export function buildHingedBox(params) {
     const hole = holeFeature({
       id: 'hinge-hole', cx: holeCenterX, cy: postHeight + tl / 2, diameter: dh, kerf,
     });
+    const features = dividerTabs ? slotsFor(label, spanY, wallHeight + postHeight,
+      { x0: 0, y0: postHeight, x1: spanY, y1: wallHeight + postHeight }, [hole], sideSlots) : [hole];
 
     return {
       id, label, width: spanY, height: wallHeight + postHeight,
-      edges: spec.edges, points, features: [hole],
+      edges: spec.edges, points, features,
     };
   };
 
@@ -322,6 +325,61 @@ export function buildHingedBox(params) {
     depth: pivotInset - tl / 2,
   };
 
+  // El barrido es un sector de círculo de radio pivotInset centrado en el
+  // eje: horizontalmente llega 2 × pivotInset hacia adentro (dividerTopCut.
+  // width), verticalmente baja pivotInset − tl/2 (dividerTopCut.depth). Un
+  // divisor se mide contra el ALCANCE HORIZONTAL; comparar su posición
+  // contra la profundidad deja pasar divisores que igual quedan bajo la tapa.
+  if (evenPositions(spanY, widthDividers).some((y) => y < dividerTopCut.width
+    || spanY - y < dividerTopCut.width)) {
+    errors.push(sweptBandError());
+    return { errors, warnings: [], panels: [] };
+  }
+
+  const tabPlan = planDividerTabs({
+    dividerMode: params.dividerMode, lengthDividers, widthDividers,
+    spanX, spanY, dividerHeight: innerHeight, t,
+    lengthTabWidth: joints.z.width, widthTabWidth: joints.y.width,
+    topCutDepth: dividerTopCut.depth,
+  });
+  errors.push(...tabPlan.errors);
+  if (errors.length > 0) return { errors, warnings: [], panels: [] };
+  const dividerTabs = tabPlan.tabs;
+
+  // Los cortes ya presentes en cada pared son obstáculos: se guarda material
+  // entre ellos y la ranura para que un poste o la manija no se debiliten.
+  const slotsFor = (label, width, height, bounds, existing, slots) => {
+    const features = [...existing];
+    for (const rect of slots) {
+      if (!slotFits(rect, { bounds, t, obstacles: features.map(featureBounds) })) {
+        errors.push(slotTooClose(label, t));
+        return existing;
+      }
+      features.push(rectHoleFeature({ id: rect.id, x: rect.x0, y: rect.y0,
+        width: rect.x1 - rect.x0, height: rect.y1 - rect.y0, kerf }));
+    }
+    return features;
+  };
+  const lengthSlots = dividerTabs?.length ? evenPositions(spanX, lengthDividers).map((x, i) => ({
+    id: `divider-slot-l${i + 1}`,
+    x0: t + x - t / 2, x1: t + x + t / 2,
+    y0: wallHeight - t - dividerTabs.length.center - joints.z.width / 2,
+    y1: wallHeight - t - dividerTabs.length.center + joints.z.width / 2,
+  })) : [];
+  const sideSlots = dividerTabs?.width ? evenPositions(spanY, widthDividers).map((y, i) => ({
+    id: `divider-slot-w${i + 1}`,
+    x0: y - t / 2, x1: y + t / 2,
+    y0: postHeight + wallHeight - t - dividerTabs.width.center - joints.y.width / 2,
+    y1: postHeight + wallHeight - t - dividerTabs.width.center + joints.y.width / 2,
+  })) : [];
+  const frontFeatures = dividerTabs ? slotsFor('FRONT', Lo, wallHeight,
+    { x0: 0, y0: 0, x1: Lo, y1: wallHeight }, [{ points: [
+      { x: handleStart, y: 0 }, { x: handleStart + hw, y: 0 },
+      { x: handleStart + hw, y: tl }, { x: handleStart, y: tl },
+    ] }], lengthSlots).filter((feature) => feature.id) : [];
+  const backFeatures = dividerTabs ? slotsFor('BACK', Lo, wallHeight,
+    { x0: 0, y0: 0, x1: Lo, y1: wallHeight }, [], lengthSlots) : [];
+
   const specs = [
     {
       id: 'bottom', label: 'BOTTOM', width: spanX, height: spanY,
@@ -330,15 +388,17 @@ export function buildHingedBox(params) {
         left: { gender: 'male', ...SOLID }, right: { gender: 'male', ...SOLID },
       },
     },
-    { id: 'back', label: 'BACK', ...endWall },
+    { id: 'back', label: 'BACK', ...endWall, ...(backFeatures.length ? { features: backFeatures } : {}) },
   ];
 
   const generic = Object.fromEntries(
     specs.map((spec) => [spec.id, { ...spec, points: panelOutline(spec, material) }]),
   );
   const front = buildFrontWall();
+  if (frontFeatures.length) front.features = frontFeatures;
   const left = buildSideWall('left', 'LEFT', 'left');
   const right = buildSideWall('right', 'RIGHT', 'right');
+  if (errors.length > 0) return { errors, warnings: [], panels: [] };
   const lid = {
     id: 'lid', label: 'LID', width: lidW, height: lidD,
     edges: {
@@ -348,8 +408,8 @@ export function buildHingedBox(params) {
     points: lidWithPegs(),
   };
   const dividerPanels = buildDividerPanels({
-    spanX, spanY, dividerHeight: innerHeight, t, kerf, lengthDividers, heightDividers,
-    topCornerCut: dividerTopCut,
+    spanX, spanY, dividerHeight: innerHeight, t, kerf, lengthDividers, widthDividers,
+    topCornerCut: dividerTopCut, tabs: dividerTabs,
   });
   const panels = [generic.bottom, front, left, lid, generic.back, right, ...dividerPanels];
 
@@ -362,11 +422,14 @@ export function buildHingedBox(params) {
         jointWidths: [joints.x.width, joints.y.width, joints.z.width],
         t, kerf, tabWidth, hc, rh, postWidth, spanY, hw, Lo,
       }),
-      ...dividerWarnings({ lengthDividers, heightDividers, spanX, dividerHeight: innerHeight, t }),
+      ...dividerWarnings({ lengthDividers, widthDividers, spanX, spanY, t }),
     ],
     outer: { length: Lo, width: Wo, height: Ho },
     inner: { length: spanX, width: spanY, height: innerHeight },
     hinge: { pegSize: ps, clearance: hc, holeDiameter: dh, postHeight },
+    dividerTabs,
+    dividerTopCutDepth: dividerTopCut.depth,
+    dividerTopCutWidth: dividerTopCut.width,
   };
 }
 
