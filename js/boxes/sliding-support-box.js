@@ -23,6 +23,14 @@ import { slidingLidPoints, validateSlidingHandle } from './sliding-box.js';
 const DEFAULT_CLEARANCE = 0.2;
 // Margen de seguridad del marco de la ventana, por encima del grosor que ya
 // ocupa el soporte (decisión con Dani: grosor + 4.5 mm).
+// La holgura lateral (0.2) es la que deja la tapa más angosta que el hueco
+// entre soportes. La VERTICAL es otra cosa: es el aire entre la cara de
+// arriba de la tapa y TOP, o sea cuánto más alta que la tapa es la ranura por
+// donde entra. Dani cortó la caja con las dos en 0.2 y el encaje lateral salió
+// perfecto, pero la ranura quedaba tan justa de alto que costaba deslizarla.
+// De ahí este número aparte: un milímetro más que la lateral.
+const DEFAULT_VERTICAL_CLEARANCE = 1.2;
+
 const FRAME_MARGIN = 4.5;
 // El tramo delantero del marco cruza la entrada de la tapa sujeto sólo por
 // sus puntas. Por debajo de 1/20 de su largo se avisa que puede quebrarse.
@@ -46,15 +54,19 @@ export function slidingSupportHeights(params) {
   const t = params.thickness;
   const tl = lidThicknessFor(params);
   const h = Number.isFinite(params.slideClearance) ? params.slideClearance : DEFAULT_CLEARANCE;
+  const hv = Number.isFinite(params.verticalClearance)
+    ? params.verticalClearance : DEFAULT_VERTICAL_CLEARANCE;
   const m = windowFrameFor(params);
   const inner = params.dimensionMode === 'inner';
   const Lo = inner ? params.length + 4 * t : params.length;
   const Wo = inner ? params.width + 2 * t : params.width;
-  const Ho = inner ? params.height + 2 * t + tl + h : params.height;
-  const railTop = Ho - t - h - tl;
+  const Ho = inner ? params.height + 2 * t + tl + hv : params.height;
+  // El canto de los soportes baja lo que mida la holgura vertical: así la
+  // ranura crece sin que la caja crezca por fuera.
+  const railTop = Ho - t - hv - tl;
 
   return {
-    Lo, Wo, Ho, t, tl, h, m,
+    Lo, Wo, Ho, t, tl, h, hv, m,
     railTop,
     frontHeight: railTop,
     supportHeight: railTop - t,
@@ -71,7 +83,7 @@ export function autoTabWidth(params) {
 export function buildSlidingSupportBox(params) {
   const { kerf, tabWidth } = params;
   const {
-    Lo, Wo, Ho, t, tl, h, m, frontHeight, supportHeight, innerHeight,
+    Lo, Wo, Ho, t, tl, h, hv, m, frontHeight, supportHeight, innerHeight,
   } = slidingSupportHeights(params);
 
   const spanX = Lo - 2 * t; // entre laterales: BOTTOM/TOP <-> frente/fondo
@@ -84,7 +96,7 @@ export function buildSlidingSupportBox(params) {
   const widthDividers = Number.isFinite(params.widthDividers) ? params.widthDividers : 0;
 
   const errors = validate({
-    Lo, Wo, Ho, t, tl, h, m, kerf, tabWidth,
+    Lo, Wo, Ho, t, tl, h, hv, m, kerf, tabWidth,
     spanX, spanY, spanZ, spanZFront, frontHeight, supportHeight,
   });
   if (errors.length === 0) {
@@ -305,14 +317,15 @@ export function buildSlidingSupportBox(params) {
 }
 
 function validate({
-  Lo, Wo, Ho, t, tl, h, m, kerf, tabWidth,
+  Lo, Wo, Ho, t, tl, h, hv, m, kerf, tabWidth,
   spanX, spanY, spanZ, spanZFront, frontHeight, supportHeight,
 }) {
   const errors = validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho });
   if (errors.length > 0) return errors;
 
   if (!isPositive(tl)) errors.push('El grosor de la tapa debe ser mayor que 0.');
-  if (!Number.isFinite(h) || h < 0) errors.push('La holgura de deslizamiento no puede ser negativa.');
+  if (!Number.isFinite(h) || h < 0) errors.push('La holgura lateral no puede ser negativa.');
+  if (!Number.isFinite(hv) || hv < 0) errors.push('La holgura vertical no puede ser negativa.');
   if (!Number.isFinite(m)) errors.push('El marco de la ventana debe ser un número.');
   if (errors.length > 0) return errors;
 

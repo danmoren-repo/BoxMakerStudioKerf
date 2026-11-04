@@ -147,13 +147,28 @@
             </div>
 
             <div class="field">
-              <label for="slideClearance">Holgura de deslizamiento <span class="unit">mm</span></label>
+              <label for="slideClearance">Holgura lateral <span class="unit">mm</span></label>
               <input type="number" id="slideClearance" name="slideClearance" value="0.2" step="0.05" min="0" inputmode="decimal">
               <p class="help">
-                El juego que se deja para que la tapa corra sin trabarse: con canal
-                grabado, cuánto más alto es el canal que la tapa; con soportes, el
-                espacio entre la tapa y TOP, y a cada lado contra los laterales. Es
-                aparte del kerf. Calíbrala con un recorte antes de cortar la caja.
+                El juego a los costados, para que la tapa corra sin rozar: con
+                canal grabado, cuánto más alto es el canal que la tapa; con
+                soportes, cuánto más angosta es la tapa que el hueco entre
+                soportes. Es aparte del kerf. Calíbrala con un recorte antes de
+                cortar la caja.
+              </p>
+            </div>
+
+            <div class="field" id="verticalClearanceField" hidden>
+              <label for="verticalClearance">Holgura vertical <span class="unit">mm</span></label>
+              <input type="number" id="verticalClearance" name="verticalClearance" value="1.2" step="0.1" min="0" inputmode="decimal">
+              <p class="help">
+                El aire que queda ENCIMA de la tapa, entre ella y TOP: o sea
+                cuánto más alta que la tapa es la ranura por donde entra. Va
+                aparte de la lateral porque las dos no quieren el mismo número —
+                a los lados conviene justo, de alto conviene suelto o cuesta
+                deslizarla. Subirla no agranda la caja por fuera: baja el canto
+                de los soportes, así que el espacio útil de adentro pierde lo
+                mismo que gana la ranura.
               </p>
             </div>
           </div>

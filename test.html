@@ -809,12 +809,15 @@
     check('soportes: medidas del ejemplo de referencia (spec)', () => {
       const H = slidingSupportHeights(SUPPORTS);
       assert(near(H.m, 7.5), `marco ${H.m}`);
-      assert(near(H.railTop, 73.8) && near(H.frontHeight, 73.8), `canto del riel ${H.railTop}`);
-      assert(near(H.supportHeight, 70.8), `alto de soporte ${H.supportHeight}`);
+      // El riel está 1 mm más abajo que antes de separar la holgura vertical
+      // (2026-11-04): la ranura de la tapa gana ese milímetro sin que la caja
+      // crezca por fuera, así que FRONT y los soportes bajan lo mismo.
+      assert(near(H.railTop, 72.8) && near(H.frontHeight, 72.8), `canto del riel ${H.railTop}`);
+      assert(near(H.supportHeight, 69.8), `alto de soporte ${H.supportHeight}`);
       const dims = (id) => [supp(id).width, supp(id).height];
       const expect = {
-        bottom: [94, 144], front: [100, 73.8], left: [144, 80], right: [144, 80],
-        back: [100, 80], top: [94, 147], 'support-1': [144, 70.8], 'support-2': [144, 70.8], lid: [93.6, 146.8],
+        bottom: [94, 144], front: [100, 72.8], left: [144, 80], right: [144, 80],
+        back: [100, 80], top: [94, 147], 'support-1': [144, 69.8], 'support-2': [144, 69.8], lid: [93.6, 146.8],
       };
       for (const [id, [w, h]] of Object.entries(expect)) {
         const [pw, ph] = dims(id);
@@ -828,9 +831,9 @@
       assert(near(sup.window.width, 79) && near(sup.window.depth, 129) && near(sup.window.frame, 7.5),
         `ventana ${sup.window.width} × ${sup.window.depth}, marco ${sup.window.frame}`);
       assert(near(sup.lid.width, 93.6) && near(sup.lid.depth, 146.8) && near(sup.lid.thickness, 3), 'resumen de tapa');
-      assert(near(sup.supports.width, 144) && near(sup.supports.height, 70.8) && sup.supports.count === 2, 'resumen de soportes');
+      assert(near(sup.supports.width, 144) && near(sup.supports.height, 69.8) && sup.supports.count === 2, 'resumen de soportes');
       assert(near(sup.outer.length, 100) && near(sup.outer.width, 150) && near(sup.outer.height, 80), 'exterior');
-      assert(near(sup.inner.length, 88) && near(sup.inner.width, 144) && near(sup.inner.height, 70.8),
+      assert(near(sup.inner.length, 88) && near(sup.inner.width, 144) && near(sup.inner.height, 69.8),
         `interior ${sup.inner.length} × ${sup.inner.width} × ${sup.inner.height}`);
       assert(sup.realOuterHeight === undefined, 'no lleva alto real con reborde');
       assert(sup.groove === undefined, 'no lleva canal');
@@ -898,7 +901,7 @@
       assert(supp('front').edges.top.gender === 'plain', 'el canto superior de FRONT va liso');
       // Lateral más alto que FRONT: la junta del frente es más corta que la del fondo.
       const left = supp('left');
-      assert(near(left.edges.left.jointSpan, 73.8 - 6), `junta del frente ${left.edges.left.jointSpan}`);
+      assert(near(left.edges.left.jointSpan, 72.8 - 6), `junta del frente ${left.edges.left.jointSpan}`);
       assert(near(left.edges.right.jointSpan, 80 - 6), `junta del fondo ${left.edges.right.jointSpan}`);
     });
 
@@ -915,7 +918,9 @@
         ...SUPPORTS, dimensionMode: 'inner', length: 88, width: 144, height: 70.8,
       });
       assert(byInner.errors.length === 0, byInner.errors.join(' | '));
-      assert(near(byInner.outer.length, 100) && near(byInner.outer.width, 150) && near(byInner.outer.height, 80),
+      // 81 y no 80: la holgura vertical de 1.2 entra en la pila, así que para
+      // conservar 70.8 mm de espacio útil la caja crece ese milímetro.
+      assert(near(byInner.outer.length, 100) && near(byInner.outer.width, 150) && near(byInner.outer.height, 81),
         `exterior ${byInner.outer.length} × ${byInner.outer.width} × ${byInner.outer.height}`);
       assert(near(byInner.inner.length, 88) && near(byInner.inner.width, 144) && near(byInner.inner.height, 70.8),
         `interior ${byInner.inner.length} × ${byInner.inner.width} × ${byInner.inner.height}`);
@@ -923,7 +928,7 @@
       const thickLid = buildSlidingSupportBox({
         ...SUPPORTS, dimensionMode: 'inner', length: 88, width: 144, height: 70.8, lidThickness: 5,
       });
-      assert(near(thickLid.outer.height, 82), `con tapa de 5: alto exterior ${thickLid.outer.height}`);
+      assert(near(thickLid.outer.height, 83), `con tapa de 5: alto exterior ${thickLid.outer.height}`);
     });
 
     check('soportes: marco automático y manual, ancho de espiga automático', () => {
@@ -934,7 +939,7 @@
       assert(near(windowFrameFor({ thickness: 3, windowFrame: 5 }), 7.5), 'con la casilla marcada manda el automático');
       const manual = buildSlidingSupportBox({ ...SUPPORTS, windowFrame: 10, windowFrameAuto: false });
       assert(near(manual.window.width, 74) && near(manual.window.depth, 124), `ventana manual ${manual.window.width} × ${manual.window.depth}`);
-      // El tramo más corto es la junta del frente (73.8 − 6 = 67.8): 3t = 9 manda.
+      // El tramo más corto es la junta del frente (72.8 − 6 = 66.8): 3t = 9 manda.
       assert(near(supportAutoTabWidth(SUPPORTS), 9), `espiga automática ${supportAutoTabWidth(SUPPORTS)}`);
     });
 
@@ -943,9 +948,9 @@
       assert(box.errors.length === 0, box.errors.join(' | '));
       assert(box.panels.length === 11, `${box.panels.length} piezas, esperaba 11 (9 + 1 + 1)`);
       const w = boundingBox(box.panels.find((p) => p.id === 'divider-w1').points);
-      assert(near(w.width, 88) && near(w.height, 70.8), `divisor de ancho ${w.width} × ${w.height}`);
+      assert(near(w.width, 88) && near(w.height, 69.8), `divisor de ancho ${w.width} × ${w.height}`);
       const l = boundingBox(box.panels.find((p) => p.id === 'divider-l1').points);
-      assert(near(l.width, 144) && near(l.height, 70.8), `divisor de largo ${l.width} × ${l.height}`);
+      assert(near(l.width, 144) && near(l.height, 69.8), `divisor de largo ${l.width} × ${l.height}`);
       assert(near(w.height, l.height), 'los dos divisores deben tener el mismo alto');
     });
 
@@ -2408,6 +2413,49 @@
       // Ningún divisor puede quedar por debajo del alto interior: si fuera un
       // estante, su "alto" sería el ancho de la caja y taparía los de abajo.
       assert(near(l.height, box.inner.height), `alto ${l.height} vs interior ${box.inner.height}`);
+    });
+
+    // ── Holgura vertical de la tapa deslizante con soportes ──
+
+    check('soportes: la ranura de la tapa es un milímetro más alta que la holgura lateral', () => {
+      const p = { ...SUPPORTS };
+      const g = slidingSupportHeights(p);
+      const ranura = g.Ho - g.t - g.railTop;      // del canto del soporte a TOP
+      assert(near(ranura, g.tl + 1.2), `ranura ${ranura}, esperaba tapa (${g.tl}) + 1.2`);
+      assert(near(g.hv, 1.2), `holgura vertical ${g.hv}`);
+      assert(near(g.h, 0.2), `la lateral no debe moverse: ${g.h}`);
+    });
+
+    check('soportes: subir la holgura vertical no agranda la caja por fuera', () => {
+      const base = slidingSupportHeights({ ...SUPPORTS });
+      const suelta = slidingSupportHeights({ ...SUPPORTS, verticalClearance: 3 });
+      assert(near(base.Ho, suelta.Ho), 'el alto exterior no debería cambiar');
+      assert(near(suelta.innerHeight, base.innerHeight - 1.8), 'el interior pierde lo que gana la ranura');
+      assert(suelta.railTop < base.railTop, 'el canto de los soportes baja');
+    });
+
+    check('soportes: en modo interiores, la caja crece para conservar el espacio útil', () => {
+      const a = slidingSupportHeights({ ...SUPPORTS, dimensionMode: 'inner' });
+      const b = slidingSupportHeights({ ...SUPPORTS, dimensionMode: 'inner', verticalClearance: 3 });
+      assert(near(b.Ho, a.Ho + 1.8), `el exterior debería crecer 1.8: ${a.Ho} -> ${b.Ho}`);
+      assert(near(a.innerHeight, b.innerHeight), 'el espacio útil se conserva');
+    });
+
+    check('soportes: la holgura lateral sigue gobernando el ancho de la tapa', () => {
+      const a = buildSlidingSupportBox({ ...SUPPORTS });
+      const b = buildSlidingSupportBox({ ...SUPPORTS, verticalClearance: 3 });
+      const w = (box) => box.panels.find((p) => p.id === 'lid').width;
+      assert(near(w(a), w(b)), 'la tapa no debe cambiar de ancho al tocar la vertical');
+    });
+
+    check('soportes: holgura vertical negativa da error', () => {
+      const b = buildSlidingSupportBox({ ...SUPPORTS, verticalClearance: -1 });
+      assert(b.errors.some((e) => e.includes('holgura vertical')), b.errors.join(' | ') || '(sin errores)');
+    });
+
+    check('soportes: holgura vertical enorme se queda sin soportes y avisa', () => {
+      const b = buildSlidingSupportBox({ ...SUPPORTS, verticalClearance: 200 });
+      assert(b.errors.length > 0, 'debería dar error, no una caja imposible');
     });
 
     // ── Divisores en la tapa con bisagra doble (spec 2026-10-31) ──

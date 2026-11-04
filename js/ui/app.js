@@ -24,6 +24,7 @@ const grooveAutoEl = document.getElementById('grooveAuto');
 const grooveField = document.getElementById('grooveField');
 const windowFrameField = document.getElementById('windowFrameField');
 const windowFrameEl = document.getElementById('windowFrame');
+const verticalClearanceField = document.getElementById('verticalClearanceField');
 const windowFrameAutoEl = document.getElementById('windowFrameAuto');
 const engraveNote = document.getElementById('engraveNote');
 const hingedFields = document.getElementById('hingedFields');
@@ -95,6 +96,10 @@ function readParams() {
     const supports = params.slideMethod === 'supports';
     grooveField.hidden = supports;
     windowFrameField.hidden = !supports;
+    // La holgura vertical sólo existe en el método de soportes: con canal
+    // grabado, el alto del canal ya lo fija la holgura lateral.
+    verticalClearanceField.hidden = !supports;
+    if (supports) params.verticalClearance = number('verticalClearance');
 
     if (supports) {
       params.windowFrameAuto = windowFrameAutoEl.checked;

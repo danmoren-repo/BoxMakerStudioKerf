@@ -1,5 +1,12 @@
 # Tapa deslizante con soportes pegados — diseño
 
+> **Nota del 2026-11-04.** Tras el corte de prueba de Dani, la holgura se
+> partió en dos: la LATERAL sigue en 0.2 mm y la VERTICAL (el aire entre la
+> tapa y TOP) pasó a 1.2 mm, porque la ranura quedaba muy justa de alto y
+> costaba deslizar la tapa. Las medidas de este documento son las de antes
+> de ese cambio: el canto de los soportes y de FRONT están ahora 1 mm más
+> abajo, y con ellos el alto interior.
+
 Fecha: 2026-10-02
 Estado: diseño aprobado con Dani en conversación; pendiente su revisión de este documento
 
