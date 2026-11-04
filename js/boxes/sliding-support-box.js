@@ -4,15 +4,21 @@ import {
   commonWarnings,
   jointSegments,
   KERF_TOO_BIG,
+  lidThicknessFor,
+  isPositive,
   validateBasics,
   validateTabsVsKerf,
+  EDGE_MARGIN,
+  handleWidthFor,
+  handleDepthFor,
+  handleCornerRadiusFor,
+  roundedTabTip,
 } from './shared.js';
 import {
   buildDividerPanels, validateDividers, dividerWarnings, evenPositions,
-  featureBounds, planDividerTabs, slotFits, slotTooClose,
+  planDividerTabs, buildSlotFeatures,
 } from './dividers.js';
-import { lidThicknessFor, slidingLidPoints, validateSlidingHandle } from './sliding-box.js';
-import { handleWidthFor, handleDepthFor, handleCornerRadiusFor } from './hinged-box.js';
+import { slidingLidPoints, validateSlidingHandle } from './sliding-box.js';
 
 const DEFAULT_CLEARANCE = 0.2;
 // Margen de seguridad del marco de la ventana, por encima del grosor que ya
@@ -111,21 +117,9 @@ export function buildSlidingSupportBox(params) {
 
   // El divisor de ancho atraviesa soporte y lateral: ambas ranuras deben
   // conservar la misma altura física, aunque sus orígenes de pieza sean distintos.
-  const slotsFor = (label, width, height, slots) => {
-    const features = [];
-    for (const rect of slots) {
-      if (!slotFits(rect, {
-        bounds: { x0: 0, y0: 0, x1: width, y1: height }, t,
-        obstacles: features.map(featureBounds),
-      })) {
-        errors.push(slotTooClose(label, t));
-        return [];
-      }
-      features.push(rectHoleFeature({ id: rect.id, x: rect.x0, y: rect.y0,
-        width: rect.x1 - rect.x0, height: rect.y1 - rect.y0, kerf }));
-    }
-    return features;
-  };
+  const slotsFor = (label, width, height, slots) => buildSlotFeatures({
+    label, bounds: { x0: 0, y0: 0, x1: width, y1: height }, slots, t, kerf, errors,
+  });
   const lengthSlots = dividerTabs?.length ? evenPositions(usableX, lengthDividers).map((x, i) => ({
     id: `divider-slot-l${i + 1}`,
     x0: 2 * t + x - t / 2, x1: 2 * t + x + t / 2,
@@ -317,8 +311,7 @@ function validate({
   const errors = validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho });
   if (errors.length > 0) return errors;
 
-  const positive = (value) => Number.isFinite(value) && value > 0;
-  if (!positive(tl)) errors.push('El grosor de la tapa debe ser mayor que 0.');
+  if (!isPositive(tl)) errors.push('El grosor de la tapa debe ser mayor que 0.');
   if (!Number.isFinite(h) || h < 0) errors.push('La holgura de deslizamiento no puede ser negativa.');
   if (!Number.isFinite(m)) errors.push('El marco de la ventana debe ser un número.');
   if (errors.length > 0) return errors;

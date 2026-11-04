@@ -1,4 +1,4 @@
-import { panelOutline, rectHoleFeature } from '../core/panel.js';
+import { panelOutline } from '../core/panel.js';
 import {
   gripDiameterFor, gripStemSpanFor, gripGeometry,
   buildTopHole, buildInsertPanel, buildHandlePanels,
@@ -15,7 +15,7 @@ import {
 } from './shared.js';
 import {
   buildDividerPanels, validateDividers, dividerWarnings, evenPositions,
-  featureBounds, planDividerTabs, slotFits, slotTooClose,
+  planDividerTabs, buildSlotFeatures,
 } from './dividers.js';
 
 // Suggested finger width: ~3x material thickness, never under 6 mm, and always
@@ -94,21 +94,10 @@ export function buildBox(params) {
 
   // Las ranuras se calculan en las coordenadas de cada pared. Validarlas antes
   // de dibujar evita dejar una cejilla debilitando un dedo del contorno.
-  const tabFeatures = (id, width, height, lengthSlots, widthSlots) => {
-    const features = [];
-    for (const rect of [...lengthSlots, ...widthSlots]) {
-      if (!slotFits(rect, {
-        bounds: { x0: 0, y0: 0, x1: width, y1: height }, t,
-        obstacles: features.map(featureBounds),
-      })) {
-        errors.push(slotTooClose(id, t));
-        return null;
-      }
-      features.push(rectHoleFeature({ id: rect.id, x: rect.x0, y: rect.y0,
-        width: rect.x1 - rect.x0, height: rect.y1 - rect.y0, kerf }));
-    }
-    return features;
-  };
+  const tabFeatures = (id, width, height, lengthSlots, widthSlots) => buildSlotFeatures({
+    label: id, bounds: { x0: 0, y0: 0, x1: width, y1: height },
+    slots: [...lengthSlots, ...widthSlots], t, kerf, errors,
+  });
   let endFeatures;
   let sideFeatures;
   if (dividerTabs) {

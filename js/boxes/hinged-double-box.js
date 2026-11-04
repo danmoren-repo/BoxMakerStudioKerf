@@ -1,7 +1,7 @@
-import { holeFeature, panelOutline, rectHoleFeature } from '../core/panel.js';
+import { holeFeature, panelOutline } from '../core/panel.js';
 import {
   buildDividerPanels, validateDividers, dividerWarnings, evenPositions,
-  featureBounds, planDividerTabs, slotFits, slotTooClose, sweptBandLengthError,
+  planDividerTabs, buildSlotFeatures, sweptBandLengthError,
 } from './dividers.js';
 import {
   autoTabWidthFromSpans,
@@ -9,20 +9,19 @@ import {
   jointSegments,
   KERF_TOO_BIG,
   outerDimensions,
+  lidThicknessFor,
+  isPositive,
   validateBasics,
   validateTabsVsKerf,
-} from './shared.js';
-import {
-  lidThicknessFor,
-  pegSizeFor,
-  hingeClearanceFor,
+  EDGE_MARGIN,
   handleWidthFor,
   handleDepthFor,
   handleCornerRadiusFor,
   roundedTabTip,
-  EDGE_MARGIN,
-  LID_SIDE_GAP,
-} from './hinged-box.js';
+} from './shared.js';
+// Lo único que sigue viniendo de la bisagra simple es lo propio de una
+// bisagra: el tamaño de espiga, la holgura del agujero y el juego de la tapa.
+import { pegSizeFor, hingeClearanceFor, LID_SIDE_GAP } from './hinged-box.js';
 
 // A diferencia de la bisagra simple (una sola tapa apoyada ENCIMA de
 // paredes acortadas un grosor), acá las dos mitades de la tapa encajan A
@@ -149,21 +148,9 @@ export function buildHingedDoubleBox(params) {
   // En frontal y trasera, y = 0 es el canto superior de la PARED: los postes
   // viven en y negativo aunque la pieza declare una altura que los incluya.
   // Las ranuras se sitúan contra wallHeight, no contra esa altura declarada.
-  const slotsFor = (label, width, height, existing, slots) => {
-    const features = [...existing];
-    for (const rect of slots) {
-      if (!slotFits(rect, {
-        bounds: { x0: 0, y0: 0, x1: width, y1: height }, t,
-        obstacles: features.map(featureBounds),
-      })) {
-        errors.push(slotTooClose(label, t));
-        return existing;
-      }
-      features.push(rectHoleFeature({ id: rect.id, x: rect.x0, y: rect.y0,
-        width: rect.x1 - rect.x0, height: rect.y1 - rect.y0, kerf }));
-    }
-    return features;
-  };
+  const slotsFor = (label, width, height, existing, slots) => buildSlotFeatures({
+    label, bounds: { x0: 0, y0: 0, x1: width, y1: height }, existing, slots, t, kerf, errors,
+  });
   const lengthSlots = dividerTabs?.length ? evenPositions(spanX, lengthDividers).map((x, i) => ({
     id: `divider-slot-l${i + 1}`,
     x0: t + x - t / 2, x1: t + x + t / 2,
@@ -394,12 +381,11 @@ function validate({
   const errors = validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho });
   if (errors.length > 0) return errors;
 
-  const positive = (v) => Number.isFinite(v) && v > 0;
-  if (!positive(tl)) errors.push('El grosor de la tapa debe ser mayor que 0.');
-  if (!positive(ps)) errors.push('El tamaño de la espiga debe ser mayor que 0.');
+  if (!isPositive(tl)) errors.push('El grosor de la tapa debe ser mayor que 0.');
+  if (!isPositive(ps)) errors.push('El tamaño de la espiga debe ser mayor que 0.');
   if (!Number.isFinite(hc) || hc < 0) errors.push('La holgura del agujero no puede ser negativa.');
-  if (!positive(hw)) errors.push('El ancho de la manija debe ser mayor que 0.');
-  if (!positive(hd)) errors.push('La profundidad de la manija debe ser mayor que 0.');
+  if (!isPositive(hw)) errors.push('El ancho de la manija debe ser mayor que 0.');
+  if (!isPositive(hd)) errors.push('La profundidad de la manija debe ser mayor que 0.');
   if (errors.length > 0) return errors;
 
   if (kerf >= t) errors.push(KERF_TOO_BIG);

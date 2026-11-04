@@ -1,8 +1,8 @@
-import { EDGE_MARGIN } from './hinged-box.js';
+import { EDGE_MARGIN, isPositive } from './shared.js';
 import { panelOutline } from '../core/panel.js';
 
 // Sin fórmula automática: es un tamaño de agarre a criterio, no se deriva
-// del grosor del material (igual que `handleWidthFor` en hinged-box.js,
+// del grosor del material (igual que `handleWidthFor` en shared.js,
 // que tampoco sigue una fórmula).
 export function gripDiameterFor({ gripDiameter }) {
   return Number.isFinite(gripDiameter) ? gripDiameter : 30;
@@ -216,9 +216,8 @@ export function validateGrip({
   t, gd, gs, spanX, spanY,
 }) {
   const errors = [];
-  const positive = (v) => Number.isFinite(v) && v > 0;
-  if (!positive(gd)) errors.push('El diámetro de la perilla debe ser mayor que 0.');
-  if (!positive(gs)) errors.push('El ancho del agujero en cruz debe ser mayor que 0.');
+  if (!isPositive(gd)) errors.push('El diámetro de la perilla debe ser mayor que 0.');
+  if (!isPositive(gs)) errors.push('El ancho del agujero en cruz debe ser mayor que 0.');
   if (errors.length > 0) return errors;
 
   if (gs <= t + 2 * EDGE_MARGIN) {

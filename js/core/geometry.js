@@ -5,10 +5,6 @@ export function round(value, decimals = 3) {
   return Math.round(value * factor) / factor;
 }
 
-export function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
-
 export function samePoint(a, b) {
   return Math.abs(a.x - b.x) < EPS && Math.abs(a.y - b.y) < EPS;
 }

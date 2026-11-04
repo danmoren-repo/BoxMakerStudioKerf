@@ -1,4 +1,5 @@
 import { EPS } from '../core/geometry.js';
+import { rectHoleFeature } from '../core/panel.js';
 
 // Posiciones a distancias iguales dentro de un tramo, sin tocar los
 // extremos: con `count` divisores, el tramo queda partido en `count + 1`
@@ -321,4 +322,35 @@ export function featureBounds(feature) {
   return {
     x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys),
   };
+}
+
+// Coloca las ranuras de cejilla en una pared, en sus coordenadas. Cada tipo
+// de caja calculaba esto por su cuenta con el mismo código: comprobar que la
+// ranura deje material alrededor, incluidos los cortes que la pared ya tiene,
+// y sólo entonces dibujarla. Validar antes de dibujar evita dejar una cejilla
+// debilitando un dedo del contorno.
+//
+// `existing` son los cortes que la pared ya trae (un agujero de bisagra, una
+// muesca de manija): entran como obstáculos y salen en el resultado. Si una
+// ranura no cabe, se apunta el error y se devuelve la pared como estaba, sin
+// ninguna ranura a medias.
+export function buildSlotFeatures({
+  label, bounds, existing = [], slots, t, kerf, errors,
+}) {
+  const features = [...existing];
+  for (const rect of slots) {
+    if (!slotFits(rect, { bounds, t, obstacles: features.map(featureBounds) })) {
+      errors.push(slotTooClose(label, t));
+      return existing;
+    }
+    features.push(rectHoleFeature({
+      id: rect.id,
+      x: rect.x0,
+      y: rect.y0,
+      width: rect.x1 - rect.x0,
+      height: rect.y1 - rect.y0,
+      kerf,
+    }));
+  }
+  return features;
 }

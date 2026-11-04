@@ -1,25 +1,27 @@
-import { holeFeature, panelOutline, rectHoleFeature } from '../core/panel.js';
+import { holeFeature, panelOutline } from '../core/panel.js';
 import {
   autoTabWidthFromSpans,
   commonWarnings,
   jointSegments,
   KERF_TOO_BIG,
   outerDimensions,
+  lidThicknessFor,
+  isPositive,
   validateBasics,
   validateTabsVsKerf,
+  EDGE_MARGIN,
+  handleWidthFor,
+  handleDepthFor,
+  handleCornerRadiusFor,
+  roundedTabTip,
 } from './shared.js';
 import {
   buildDividerPanels, validateDividers, dividerWarnings, evenPositions,
-  featureBounds, planDividerTabs, slotFits, slotTooClose, sweptBandError,
+  planDividerTabs, buildSlotFeatures, sweptBandError,
 } from './dividers.js';
 
-// La tapa puede ser de otro grosor que la caja. Sin valor, copia la pared.
-export function lidThicknessFor({ thickness, lidThickness }) {
-  return Number.isFinite(lidThickness) ? lidThickness : thickness;
-}
 
 const DEFAULT_HINGE_CLEARANCE = 0.5;
-export const EDGE_MARGIN = 2; // material mínimo alrededor de cualquier corte cerrado
 // Juego entre el canto de la tapa y la cara interior de la pared donde gira,
 // para que no roce al abrir. La espiga se alarga lo mismo, así su punta sigue
 // a ras de la cara exterior de la pared.
@@ -35,64 +37,6 @@ export function hingeClearanceFor({ hingeClearance }) {
   return Number.isFinite(hingeClearance) ? hingeClearance : DEFAULT_HINGE_CLEARANCE;
 }
 
-export function handleWidthFor({ handleWidth }) {
-  return Number.isFinite(handleWidth) ? handleWidth : 20;
-}
-export function handleDepthFor({ thickness, handleDepth }) {
-  return Number.isFinite(handleDepth) ? handleDepth : thickness + 5;
-}
-export function handleCornerRadiusFor({ handleCornerRadius }) {
-  return Number.isFinite(handleCornerRadius) ? handleCornerRadius : 2;
-}
-
-// Los dos vértices redondeados de la PUNTA de un bulto rectangular que
-// sobresale desde `baseY` hasta `tipY` — hacia arriba (tipY < baseY, la
-// manija de la bisagra simple) o hacia abajo (tipY > baseY, cada mitad de
-// la lengüeta de la bisagra doble, que sobresale a la vez por el frente y
-// por el fondo). Sólo tiene sentido redondear la punta: la base, donde el
-// bulto se funde con el canto recto, no es una esquina — ahí el contorno
-// sigue derecho, igual que en cualquier otro punto de ese canto.
-//
-// El plan original (`roundedRectPoints`, un rectángulo de 4 esquinas
-// redondeadas y sentido horario) traza un rectángulo CERRADO completo —
-// incluida la arista que falta entre el último punto y el primero,
-// implícita al usarlo como polígono por sí solo. Empalmar ese rectángulo
-// entero entre la base y la base, como decía el plan, no funciona: mete un
-// bucle cerrado propio en medio del contorno de la tapa, con una costura
-// cerca de la base (la arista entre las dos esquinas "de abajo" del
-// rectángulo, que conecta un lado con el otro cruzando por dentro del
-// propio bulto) que efectivamente se cruza con el resto de la figura.
-// Verificado con un script de cruces de segmentos (mismo tipo usado en el
-// historial de este archivo para verificar contornos armados a mano): con
-// las 4 esquinas, 1 cruce transversal y 1 vértice apoyado sobre una arista
-// ajena, los dos exactamente en esa costura de la base. Con sólo las 2
-// esquinas de la punta (esta versión), 0 y 0.
-//
-// Devuelve los puntos en el mismo sentido en que se recorren de `x` a
-// `x + width` (izquierda a derecha); si el contorno que la usa camina esa
-// punta al revés (de `x + width` a `x`), el llamador debe invertir el
-// arreglo con `.reverse()` — invertir el orden de los puntos conserva la
-// forma pero camina la misma curva en sentido contrario, que es
-// exactamente lo que hace falta ahí.
-export function roundedTabTip({
-  x, width, baseY, tipY, radius, steps = 6,
-}) {
-  const up = tipY < baseY;
-  const cy = up ? tipY + radius : tipY - radius;
-  const [a1From, a1To, a2From, a2To] = up ? [180, 270, 270, 360] : [180, 90, 90, 0];
-  const arc = (cx, fromDeg, toDeg) => {
-    const pts = [];
-    for (let i = 0; i <= steps; i += 1) {
-      const a = ((fromDeg + (toDeg - fromDeg) * (i / steps)) * Math.PI) / 180;
-      pts.push({ x: cx + radius * Math.cos(a), y: cy + radius * Math.sin(a) });
-    }
-    return pts;
-  };
-  return [
-    ...arc(x + radius, a1From, a1To),
-    ...arc(x + width - radius, a2From, a2To),
-  ];
-}
 
 // Ho es la distancia de la base a la cara superior de la tapa cerrada, igual
 // que en las otras tapas. Las cuatro paredes llegan a Ho y la tapa queda
@@ -259,7 +203,7 @@ export function buildHingedBox(params) {
     const hole = holeFeature({
       id: 'hinge-hole', cx: holeCenterX, cy: postHeight + tl / 2, diameter: dh, kerf,
     });
-    const features = dividerTabs ? slotsFor(label, spanY, wallHeight + postHeight,
+    const features = dividerTabs ? slotsFor(label,
       { x0: 0, y0: postHeight, x1: spanY, y1: wallHeight + postHeight }, [hole], sideSlots) : [hole];
 
     return {
@@ -348,18 +292,9 @@ export function buildHingedBox(params) {
 
   // Los cortes ya presentes en cada pared son obstáculos: se guarda material
   // entre ellos y la ranura para que un poste o la manija no se debiliten.
-  const slotsFor = (label, width, height, bounds, existing, slots) => {
-    const features = [...existing];
-    for (const rect of slots) {
-      if (!slotFits(rect, { bounds, t, obstacles: features.map(featureBounds) })) {
-        errors.push(slotTooClose(label, t));
-        return existing;
-      }
-      features.push(rectHoleFeature({ id: rect.id, x: rect.x0, y: rect.y0,
-        width: rect.x1 - rect.x0, height: rect.y1 - rect.y0, kerf }));
-    }
-    return features;
-  };
+  const slotsFor = (label, bounds, existing, slots) => buildSlotFeatures({
+    label, bounds, existing, slots, t, kerf, errors,
+  });
   const lengthSlots = dividerTabs?.length ? evenPositions(spanX, lengthDividers).map((x, i) => ({
     id: `divider-slot-l${i + 1}`,
     x0: t + x - t / 2, x1: t + x + t / 2,
@@ -372,12 +307,12 @@ export function buildHingedBox(params) {
     y0: postHeight + wallHeight - t - dividerTabs.width.center - joints.y.width / 2,
     y1: postHeight + wallHeight - t - dividerTabs.width.center + joints.y.width / 2,
   })) : [];
-  const frontFeatures = dividerTabs ? slotsFor('FRONT', Lo, wallHeight,
+  const frontFeatures = dividerTabs ? slotsFor('FRONT',
     { x0: 0, y0: 0, x1: Lo, y1: wallHeight }, [{ points: [
       { x: handleStart, y: 0 }, { x: handleStart + hw, y: 0 },
       { x: handleStart + hw, y: tl }, { x: handleStart, y: tl },
     ] }], lengthSlots).filter((feature) => feature.id) : [];
-  const backFeatures = dividerTabs ? slotsFor('BACK', Lo, wallHeight,
+  const backFeatures = dividerTabs ? slotsFor('BACK',
     { x0: 0, y0: 0, x1: Lo, y1: wallHeight }, [], lengthSlots) : [];
 
   const specs = [
@@ -440,12 +375,11 @@ function validate({
   const errors = validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho });
   if (errors.length > 0) return errors;
 
-  const positive = (v) => Number.isFinite(v) && v > 0;
-  if (!positive(tl)) errors.push('El grosor de la tapa debe ser mayor que 0.');
-  if (!positive(ps)) errors.push('El tamaño de la espiga debe ser mayor que 0.');
+  if (!isPositive(tl)) errors.push('El grosor de la tapa debe ser mayor que 0.');
+  if (!isPositive(ps)) errors.push('El tamaño de la espiga debe ser mayor que 0.');
   if (!Number.isFinite(hc) || hc < 0) errors.push('La holgura del agujero no puede ser negativa.');
-  if (!positive(hw)) errors.push('El ancho de la manija debe ser mayor que 0.');
-  if (!positive(hd)) errors.push('La profundidad de la manija debe ser mayor que 0.');
+  if (!isPositive(hw)) errors.push('El ancho de la manija debe ser mayor que 0.');
+  if (!isPositive(hd)) errors.push('La profundidad de la manija debe ser mayor que 0.');
   if (errors.length > 0) return errors;
 
   if (kerf >= t) errors.push(KERF_TOO_BIG);

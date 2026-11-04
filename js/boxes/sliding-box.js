@@ -1,31 +1,28 @@
-import { panelOutline, pocketFeature, rectHoleFeature } from '../core/panel.js';
+import { panelOutline, pocketFeature } from '../core/panel.js';
 import {
   autoTabWidthFromSpans,
   commonWarnings,
   jointSegments,
   KERF_TOO_BIG,
   outerDimensions,
+  lidThicknessFor,
+  isPositive,
   validateBasics,
   validateTabsVsKerf,
+  EDGE_MARGIN,
+  handleWidthFor,
+  handleDepthFor,
+  handleCornerRadiusFor,
+  roundedTabTip,
 } from './shared.js';
 import {
   buildDividerPanels, validateDividers, dividerWarnings, evenPositions,
-  featureBounds, planDividerTabs, slotFits, slotTooClose,
+  planDividerTabs, buildSlotFeatures,
 } from './dividers.js';
-import {
-  handleWidthFor, handleDepthFor, handleCornerRadiusFor, roundedTabTip,
-} from './hinged-box.js';
 
 const DEFAULT_CLEARANCE = 0.2;
 const MAX_AUTO_GROOVE_DEPTH = 6;
 
-// La tapa puede ser de otro material que la caja: caja de 10 con tapa de 3, o
-// tapa de acrílico sobre caja de madera. Sin valor, copia el grosor de pared.
-// Un valor presente pero absurdo se deja pasar a propósito, para que la
-// validación pueda decirlo en vez de sustituirlo a la espalda del usuario.
-export function lidThicknessFor({ thickness, lidThickness }) {
-  return Number.isFinite(lidThickness) ? lidThickness : thickness;
-}
 
 // Automática: media pared, con tope, para no fresar más hondo de lo que hace
 // falta en maciza gruesa. La tapa no agarra mejor por eso, y es tiempo de
@@ -123,21 +120,9 @@ export function buildSlidingBox(params) {
 
   // Cada pared conserva sus propios cortes (canal incluido) como obstáculos:
   // una ranura cercana debilitaría la pared aunque ambas figuras no se toquen.
-  const slotsFor = (label, width, height, existing, slots) => {
-    const features = [...existing];
-    for (const rect of slots) {
-      if (!slotFits(rect, {
-        bounds: { x0: 0, y0: 0, x1: width, y1: height }, t,
-        obstacles: features.map(featureBounds),
-      })) {
-        errors.push(slotTooClose(label, t));
-        return existing;
-      }
-      features.push(rectHoleFeature({ id: rect.id, x: rect.x0, y: rect.y0,
-        width: rect.x1 - rect.x0, height: rect.y1 - rect.y0, kerf }));
-    }
-    return features;
-  };
+  const slotsFor = (label, width, height, existing, slots) => buildSlotFeatures({
+    label, bounds: { x0: 0, y0: 0, x1: width, y1: height }, existing, slots, t, kerf, errors,
+  });
   const lengthSlots = dividerTabs?.length ? evenPositions(spanX, lengthDividers).map((x, i) => ({
     id: `divider-slot-l${i + 1}`,
     x0: t + x - t / 2, x1: t + x + t / 2,
@@ -321,9 +306,8 @@ export function validateSlidingHandle({
   handleWidth: hw, handleDepth: hd, lidWidth, t,
 }) {
   const errors = [];
-  const positive = (value) => Number.isFinite(value) && value > 0;
-  if (!positive(hw)) errors.push('El ancho de la manija debe ser mayor que 0.');
-  if (!positive(hd)) errors.push('La profundidad de la manija debe ser mayor que 0.');
+  if (!isPositive(hw)) errors.push('El ancho de la manija debe ser mayor que 0.');
+  if (!isPositive(hd)) errors.push('La profundidad de la manija debe ser mayor que 0.');
   if (errors.length > 0) return errors;
   if (hw + 2 * t > lidWidth) {
     errors.push(`La manija (${hw} mm) es más ancha que la tapa (${lidWidth.toFixed(1)} mm): no deja material a los costados.`);
@@ -338,10 +322,9 @@ function validate({
   const errors = validateBasics({ t, kerf, tabWidth, Lo, Wo, Ho });
   if (errors.length > 0) return errors;
 
-  const positive = (value) => Number.isFinite(value) && value > 0;
-  if (!positive(tl)) errors.push('El grosor de la tapa debe ser mayor que 0.');
+  if (!isPositive(tl)) errors.push('El grosor de la tapa debe ser mayor que 0.');
   if (!Number.isFinite(h) || h < 0) errors.push('La holgura de deslizamiento no puede ser negativa.');
-  if (!positive(p)) errors.push('La profundidad del canal debe ser mayor que 0.');
+  if (!isPositive(p)) errors.push('La profundidad del canal debe ser mayor que 0.');
   if (errors.length > 0) return errors;
 
   // Kerf y geometría van en un solo lote: una caja inválida por varios motivos
