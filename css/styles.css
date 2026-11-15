@@ -90,8 +90,9 @@ body {
 .preview-area {
   overflow-y: auto;
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
   padding: 24px;
 }
 
@@ -305,4 +306,142 @@ button:focus-visible {
 .hinged-fields {
   border-left: 2px solid var(--accent);
   padding-left: 12px;
+}
+
+/* Pestañas "Piezas | 3D" sobre la vista previa. */
+.preview-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.preview-tabs [role="tablist"] {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.preview-tabs [role="tab"],
+.reframe-btn {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 16px;
+  border: none;
+  background: var(--sidebar-bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.preview-tabs [role="tab"] + [role="tab"] {
+  border-left: 1px solid var(--border);
+}
+
+.preview-tabs [role="tab"][aria-selected="true"] {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.open-control {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.open-control[hidden] {
+  display: none;
+}
+
+.open-control input {
+  flex: 1;
+  min-width: 80px;
+  accent-color: var(--accent);
+}
+
+.reframe-btn {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.preview-tabs [role="tab"]:focus-visible,
+.reframe-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+#preview[hidden],
+#preview3d[hidden],
+.reframe-btn[hidden] {
+  display: none;
+}
+
+/* Etiqueta de la pieza elegida y panel de medidas, flotando sobre el escenario. */
+.piece-label,
+.dims-panel {
+  position: absolute;
+  margin: 0;
+  padding: 4px 8px;
+  font: 12px/1.3 ui-monospace, Menlo, monospace;
+  color: var(--paper);
+  background: var(--ink);
+  border: 1px solid rgba(36, 27, 16, 0.25);
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.piece-label {
+  top: 10px;
+  left: 10px;
+}
+
+.dims-panel {
+  bottom: 10px;
+  left: 10px;
+}
+
+.piece-label[hidden],
+.dims-panel[hidden] {
+  display: none;
+}
+
+/* Escenario 3D: siempre con la paleta de Studio Kerf (css/studio-kerf-tokens.css),
+   también en modo oscuro. */
+#preview3d {
+  position: relative;
+  width: 100%;
+  height: min(70vh, 640px);
+  min-height: 300px;
+  background: var(--ink);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.viewer3d-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+.viewer3d-message {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--paper);
+  background: var(--ink);
+}
+
+.viewer3d-message[hidden] {
+  display: none;
 }

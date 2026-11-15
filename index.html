@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>BoxMaker</title>
+  <link rel="stylesheet" href="css/studio-kerf-tokens.css">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -325,7 +326,23 @@
     </aside>
 
     <main class="preview-area">
-      <div id="preview"></div>
+      <div class="preview-tabs">
+        <div role="tablist" aria-label="Vista previa">
+          <button type="button" role="tab" id="tabPieces" aria-selected="true" aria-controls="preview">Piezas</button>
+          <button type="button" role="tab" id="tab3d" aria-selected="false" aria-controls="preview3d" tabindex="-1">3D</button>
+        </div>
+        <label id="openControl" class="open-control" hidden>
+          <span>Abrir</span>
+          <input type="range" id="openSlider" min="0" max="100" value="0" step="1">
+        </label>
+        <button type="button" id="reframeBtn" class="reframe-btn" hidden>Reencuadrar</button>
+        <button type="button" id="pngBtn" class="reframe-btn" hidden disabled>Descargar PNG</button>
+      </div>
+      <div id="preview" role="tabpanel" aria-labelledby="tabPieces"></div>
+      <div id="preview3d" role="tabpanel" aria-labelledby="tab3d" hidden>
+        <p id="pieceLabel" class="piece-label" hidden></p>
+        <p id="dimsPanel" class="dims-panel" hidden></p>
+      </div>
       <p id="engraveNote" class="engrave-note" hidden></p>
     </main>
   </div>

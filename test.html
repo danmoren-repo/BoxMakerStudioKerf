@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>BoxMaker — self-checks</title>
+  <link rel="stylesheet" href="css/studio-kerf-tokens.css">
   <style>
     body { font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 2rem; }
     h1 { font-size: 1.2rem; }
@@ -29,6 +30,7 @@
       autoTabWidth as supportAutoTabWidth,
     } from './js/boxes/sliding-support-box.js';
     import { buildHingedBox } from './js/boxes/hinged-box.js';
+    import { makePose, poseBasis, toWorld, rectOrigin, slide as poseSlide, swing, applyOpen } from './js/core/pose.js';
     import { buildHingedDoubleBox } from './js/boxes/hinged-double-box.js';
     import { renderBox } from './js/render/svg-render.js';
     import {
@@ -2597,6 +2599,579 @@
       });
       assert(b.errors.includes(NO_TAB_ROOM), b.errors.join('|') || '(sin errores)');
     });
+
+    // 3D: three.js vendorizado (el await va afuera; check es síncrono)
+    let threeOk = null;
+    try {
+      const THREE = await import('./vendor/three/three.module.min.js');
+      const { OrbitControls } = await import('./vendor/three/OrbitControls.js');
+      threeOk = typeof THREE.ExtrudeGeometry === 'function' && typeof THREE.Shape === 'function'
+        && typeof OrbitControls === 'function' && THREE.REVISION === '180';
+    } catch (e) { threeOk = e.message; }
+    check('3D: three.js 0.180 vendorizado carga sin CDN', () => assert(threeOk === true, String(threeOk)));
+
+    // 3D: contorno a sólido (piece-geometry.js). Los paneles de SLIDE/SUPPORTS aún no
+    // traen pose, así que se les pone el grosor a mano.
+    let pieceGeo = null;
+    try { pieceGeo = await import('./js/preview3d/piece-geometry.js'); } catch (e) { pieceGeo = e.message; }
+    const pgBuild = (panel) => {
+      assert(typeof pieceGeo !== 'string', pieceGeo);
+      return pieceGeo.buildPieceGeometry(panel);
+    };
+    const pgNoNaN = (g) => assert(![...g.attributes.position.array].some(Number.isNaN), 'NaN en position');
+    check('3D geometría: pared lisa', () => {
+      const r = pgBuild({ ...buildBox(BASE).panels[0], features: [], pose: { thickness: BASE.thickness } });
+      assert(r.layers.length === 1 && r.layers[0].holeCount === 0, 'debía ser una capa sin agujeros');
+      assert(near(r.layers[0].z0, -1.5) && near(r.layers[0].z1, 1.5), 'z fuera de ±t/2');
+      pgNoNaN(r.layers[0].geometry);
+    });
+    check('3D geometría: ventana de TOP', () => {
+      const top = buildSlidingSupportBox(SUPPORTS).panels.find((p) => p.id === 'top');
+      const r = pgBuild(top);
+      assert(r.layers.length === 1 && r.layers[0].holeCount === 1, `capas ${r.layers.length}, agujeros ${r.layers[0].holeCount}`);
+      pgNoNaN(r.layers[0].geometry);
+    });
+    check('3D geometría: canal en dos capas', () => {
+      const box = buildSlidingBox(SLIDE);
+      const left = box.panels.find((p) => p.id === 'left');
+      const r = pgBuild(left);
+      const p = box.groove.depth, t = SLIDE.thickness;
+      assert(r.layers.length === 2, `capas ${r.layers.length}`);
+      assert(near(r.layers[0].z0, -t / 2) && near(r.layers[0].z1, t / 2 - p), 'capa de abajo mal');
+      assert(near(r.layers[1].z0, t / 2 - p) && near(r.layers[1].z1, t / 2), 'capa de arriba mal');
+      // La geometría real de cada capa ocupa exactamente su z0..z1.
+      for (const [i, l] of r.layers.entries()) {
+        pgNoNaN(l.geometry);
+        l.geometry.computeBoundingBox();
+        const bb = l.geometry.boundingBox;
+        assert(near(bb.min.z, l.z0, 1e-6) && near(bb.max.z, l.z1, 1e-6),
+          `capa ${i}: z real [${bb.min.z}, ${bb.max.z}] ≠ [${l.z0}, ${l.z1}]`);
+      }
+      const pockets = left.features.filter((f) => f.kind === 'pocket').length;
+      assert(r.layers[1].holeCount === r.layers[0].holeCount + pockets,
+        `agujeros capa de arriba ${r.layers[1].holeCount}, abajo ${r.layers[0].holeCount}, rebajes ${pockets}`);
+    });
+    check('3D geometría: canal de BACK cerca del contorno', () => {
+      const box = buildSlidingBox(SLIDE);
+      const back = box.panels.find((p) => p.id === 'back');
+      const r = pgBuild(back);
+      assert(r.layers.length === 2, `capas ${r.layers.length}`);
+      const widths = r.layers.map((l) => {
+        pgNoNaN(l.geometry);
+        l.geometry.computeBoundingBox();
+        return l.geometry.boundingBox.max.x - l.geometry.boundingBox.min.x;
+      });
+      assert(near(widths[0], widths[1], 1e-6), `anchos ${widths.join(' vs ')}`);
+      const pockets = back.features.filter((f) => f.kind === 'pocket').length;
+      assert(r.layers[1].holeCount === r.layers[0].holeCount + pockets,
+        `agujeros capa de arriba ${r.layers[1].holeCount}, abajo ${r.layers[0].holeCount}, rebajes ${pockets}`);
+    });
+    check('3D geometría: grabado sin profundidad', () => {
+      const wall = buildBox(BASE).panels[0];
+      const mark = { id: 'g', layer: 'engrave', kind: 'mark', points: [{ x: 10, y: 10 }, { x: 30, y: 10 }, { x: 30, y: 20 }] };
+      const r = pgBuild({ ...wall, features: [mark], pose: { thickness: BASE.thickness } });
+      assert(r.layers.length === 1 && r.layers[0].holeCount === 0, 'debía ser una capa sin agujeros');
+      assert(r.engraves.length === 1 && near(r.engraves[0][0].y, -10), 'grabado no volteado');
+    });
+
+    // Pose: el contrato que cada constructor declara y el visor usa
+    check('pose: la base de FRONT es una rotación y lleva x_svg hacia −x', () => {
+      const p = makePose({ origin: { x: 0, y: 0, z: 0 }, normal: { x: 0, y: 1, z: 0 }, up: { x: 0, y: 0, z: 1 },
+        group: 'cuerpo', thickness: 3, open: poseSlide({ x: 0, y: -1, z: 0 }, 10) });
+      const b = poseBasis(p);
+      assert(near(b.x.x, -1) && near(b.x.y, 0) && near(b.x.z, 0), JSON.stringify(b.x));
+      // det = x · (y × z) = +1: rotación, no espejo
+      const c = { x: b.y.y * b.z.z - b.y.z * b.z.y, y: b.y.z * b.z.x - b.y.x * b.z.z, z: b.y.x * b.z.y - b.y.y * b.z.x };
+      assert(near(b.x.x * c.x + b.x.y * c.y + b.x.z * c.z, 1), 'det ≠ 1');
+    });
+    check('pose: toWorld voltea el eje vertical del SVG', () => {
+      const p = makePose({ origin: { x: 0, y: 0, z: 10 }, normal: { x: 0, y: 1, z: 0 }, up: { x: 0, y: 0, z: 1 },
+        group: 'cuerpo', thickness: 3, open: poseSlide({ x: 0, y: -1, z: 0 }, 10) });
+      assert(near(toWorld(p, { x: 0, y: 4 }).z, 6), 'y_svg = 4 debe bajar 4 mm');
+    });
+    check('pose: rectOrigin lleva el centro del rectángulo al centro pedido', () => {
+      const n = { x: 0, y: 1, z: 0 }, up = { x: 0, y: 0, z: 1 };
+      const o = rectOrigin({ center: { x: 0, y: -48.5, z: 40 }, width: 100, height: 80, normal: n, up });
+      const p = makePose({ origin: o, normal: n, up, group: 'cuerpo', thickness: 3, open: poseSlide({ x: 0, y: -1, z: 0 }, 1) });
+      const c = toWorld(p, { x: 50, y: 40 });
+      assert(near(c.x, 0) && near(c.y, -48.5) && near(c.z, 40), JSON.stringify(c));
+    });
+    check('pose: makePose rechaza normal y up no perpendiculares', () => {
+      let threw = false;
+      try { makePose({ origin: { x: 0, y: 0, z: 0 }, normal: { x: 0, y: 0, z: 1 }, up: { x: 0, y: 0, z: 1 },
+        group: 'cuerpo', thickness: 3, open: poseSlide({ x: 0, y: 0, z: 1 }, 1) }); } catch { threw = true; }
+      assert(threw, 'debía lanzar');
+    });
+    check('pose: un giro de 90° alrededor de −x sube un punto que está delante del eje', () => {
+      const p = makePose({ origin: { x: 0, y: 0, z: 0 }, normal: { x: 0, y: 0, z: -1 }, up: { x: 0, y: -1, z: 0 },
+        group: 'tapa', thickness: 3, open: swing({ x: -1, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, 90) });
+      const q = applyOpen(p, { x: 0, y: -10, z: 0 }, 1);
+      assert(near(q.z, 10) && near(q.y, 0), JSON.stringify(q));
+    });
+
+    // --- Pruebas de pose reutilizables (Tareas 3-10) ---
+    const FINGER = { ...BASE, lidType: 'finger' };
+    const POSE_FLAT_GRIP = { ...BASE, lidType: 'flat', grip: true };
+
+    // Caja envolvente en el mundo de los puntos del contorno en zLocal = ±grosor/2.
+    function worldBounds(panel) {
+      const b = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity };
+      for (const pt of panel.points) {
+        for (const zl of [-panel.pose.thickness / 2, panel.pose.thickness / 2]) {
+          const w = toWorld(panel.pose, pt, zl);
+          b.minX = Math.min(b.minX, w.x); b.maxX = Math.max(b.maxX, w.x);
+          b.minY = Math.min(b.minY, w.y); b.maxY = Math.max(b.maxY, w.y);
+          b.minZ = Math.min(b.minZ, w.z); b.maxZ = Math.max(b.maxZ, w.z);
+        }
+      }
+      return b;
+    }
+    const unionBounds = (list) => list.reduce((a, p) => {
+      const b = worldBounds(p);
+      return {
+        minX: Math.min(a.minX, b.minX), maxX: Math.max(a.maxX, b.maxX),
+        minY: Math.min(a.minY, b.minY), maxY: Math.max(a.maxY, b.maxY),
+        minZ: Math.min(a.minZ, b.minZ), maxZ: Math.max(a.maxZ, b.maxZ),
+      };
+    }, { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity });
+
+    // Piezas con grabado superficial que miran hacia afuera de la caja (decisión 9a).
+    function faceInwardErrors(box) {
+      const body = box.panels.filter((p) => p.pose && p.pose.group === 'cuerpo');
+      if (body.length === 0) return ['no hay piezas del cuerpo'];
+      const bb = unionBounds(body);
+      const c = { x: (bb.minX + bb.maxX) / 2, y: (bb.minY + bb.maxY) / 2, z: (bb.minZ + bb.maxZ) / 2 };
+      const errs = [];
+      for (const p of box.panels) {
+        if (!p.pose) continue;
+        const engraved = (p.features || []).some((f) => f.kind === 'pocket' || (f.layer === 'engrave' && f.kind !== 'hole'));
+        if (!engraved) continue;
+        const w = worldBounds(p);
+        const pc = { x: (w.minX + w.maxX) / 2, y: (w.minY + w.maxY) / 2, z: (w.minZ + w.maxZ) / 2 };
+        const n = p.pose.normal;
+        const d = n.x * (c.x - pc.x) + n.y * (c.y - pc.y) + n.z * (c.z - pc.z);
+        if (!(d > 0)) errs.push(`${p.id}: la cara dibujada mira hacia afuera (normal ${JSON.stringify(n)}, producto ${d.toFixed(3)})`);
+      }
+      return errs;
+    }
+
+    function runPoseChecks(nombre, box, cfg) {
+      const t = cfg.thickness, kerf = cfg.kerf;
+      check(`pose ${nombre}: completa`, () => {
+        assert(box.panels.length > 0, 'la caja no tiene piezas');
+        const bad = box.panels.filter((p) => !p.pose || !Object.isFrozen(p.pose)).map((p) => p.id);
+        assert(bad.length === 0, `piezas sin pose válida: ${bad.join(', ')}`);
+      });
+      check(`pose ${nombre}: medidas`, () => {
+        const body = box.panels.filter((p) => p.pose.group === 'cuerpo');
+        const bz = unionBounds(box.panels.filter((p) => ['cuerpo', 'tapa'].includes(p.pose.group)));
+        const bb = unionBounds(body);
+        const tol = kerf + 1e-6;
+        const wantZ = (box.realOuterHeight ?? box.outer.height) + (box.hinge?.postHeight ?? 0);
+        assert(Math.abs((bb.maxX - bb.minX) - box.outer.length) <= tol, `ancho x ${bb.maxX - bb.minX} ≠ ${box.outer.length}`);
+        assert(Math.abs((bb.maxY - bb.minY) - box.outer.width) <= tol, `ancho y ${bb.maxY - bb.minY} ≠ ${box.outer.width}`);
+        assert(Math.abs((bz.maxZ - bz.minZ) - wantZ) <= tol, `alto z ${bz.maxZ - bz.minZ} ≠ ${wantZ}`);
+        assert(Math.abs(bb.minZ) <= tol, `minZ del cuerpo ${bb.minZ} ≠ 0`);
+      });
+      check(`pose ${nombre}: sin invasiones`, () => {
+        const ps = box.panels.map((p) => ({ p, b: worldBounds(p) }));
+        const errs = [];
+        for (let i = 0; i < ps.length; i++) {
+          for (let j = i + 1; j < ps.length; j++) {
+            const a = ps[i], b = ps[j];
+            if (a.p.pose.group === b.p.pose.group) continue;
+            const dx = Math.min(a.b.maxX, b.b.maxX) - Math.max(a.b.minX, b.b.minX);
+            const dy = Math.min(a.b.maxY, b.b.maxY) - Math.max(a.b.minY, b.b.minY);
+            const dz = Math.min(a.b.maxZ, b.b.maxZ) - Math.max(a.b.minZ, b.b.minZ);
+            if (dx <= 0 || dy <= 0 || dz <= 0) continue;
+            const shortest = Math.min(dx, dy, dz);
+            if (shortest > t + kerf + 1e-6) {
+              errs.push(`${a.p.id} (${a.p.pose.group}) y ${b.p.id} (${b.p.pose.group}) se cruzan ${dx.toFixed(3)} × ${dy.toFixed(3)} × ${dz.toFixed(3)} mm`);
+            }
+          }
+        }
+        assert(errs.length === 0, errs.join(' | '));
+      });
+      check(`pose ${nombre}: cara interior`, () => {
+        const errs = faceInwardErrors(box);
+        assert(errs.length === 0, errs.join(' | '));
+      });
+    }
+
+    // Control positivo: la prueba 9a debe detectar un rebaje en una pared volteada hacia afuera.
+    check('pose: cara interior detecta un panel con rebaje volteado', () => {
+      const base = buildBox(FINGER);
+      const front = base.panels.find((p) => p.id === 'front');
+      const pocket = pocketFeature({ id: 'p-test', x: 10, y: 10, width: 10, height: 10, depth: 1 });
+      const withPose = (pose) => ({ ...base, panels: base.panels.map((p) => (p.id === 'front' ? { ...front, features: [pocket], pose } : p)) });
+      const good = faceInwardErrors(withPose(front.pose));
+      assert(good.length === 0, `pose real no debía dar errores: ${good.join(' | ')}`);
+      const o = front.pose.origin;
+      const c = { x: 0, y: o.y, z: front.height / 2 };
+      const n = { x: 0, y: -1, z: 0 }, up = { x: 0, y: 0, z: 1 };
+      const flipped = makePose({
+        origin: rectOrigin({ center: c, width: front.width, height: front.height, normal: n, up }),
+        normal: n, up, group: 'cuerpo', thickness: front.pose.thickness, open: poseSlide({ x: 0, y: 1, z: 0 }, 1),
+      });
+      const bad = faceInwardErrors(withPose(flipped));
+      assert(bad.length > 0, 'no detectó la pared volteada con rebaje');
+    });
+
+    runPoseChecks('espigas', buildBox(FINGER), FINGER);
+    runPoseChecks('plana', buildBox(FLAT), FLAT);
+    runPoseChecks('plana con perilla', buildBox(POSE_FLAT_GRIP), POSE_FLAT_GRIP);
+    const FINGER_DIV = { ...FINGER, lengthDividers: 2, widthDividers: 1, dividerMode: 'tabbed' };
+    runPoseChecks('espigas con divisores', buildBox(FINGER_DIV), FINGER_DIV);
+    check('pose divisores: caen donde están las ranuras de la pared', () => {
+      const box = buildBox(FINGER_DIV);
+      const t = FINGER_DIV.thickness;
+      const Lo = box.outer.length, Wo = box.outer.width;
+      const spanX = Lo - 2 * t, spanY = Wo - 2 * t;
+      const posL = evenPositions(spanX, 2), posW = evenPositions(spanY, 1);
+      posL.forEach((pos, i) => {
+        const p = box.panels.find((q) => q.id === `divider-l${i + 1}`);
+        assert(p && p.pose, `falta pose en divider-l${i + 1}`);
+        const xs = p.points.map((pt) => toWorld(p.pose, pt, 0).x);
+        const want = -Lo / 2 + t + pos;
+        assert(xs.every((x) => Math.abs(x - want) < 1e-6), `divider-l${i + 1}: x ${xs[0]} ≠ ${want}`);
+      });
+      posW.forEach((pos, j) => {
+        const p = box.panels.find((q) => q.id === `divider-w${j + 1}`);
+        assert(p && p.pose, `falta pose en divider-w${j + 1}`);
+        const ys = p.points.map((pt) => toWorld(p.pose, pt, 0).y);
+        const want = -Wo / 2 + t + pos;
+        assert(ys.every((y) => Math.abs(y - want) < 1e-6), `divider-w${j + 1}: y ${ys[0]} ≠ ${want}`);
+      });
+    });
+    check('pose divisores: buildDividerPanels sin frame no pone pose', () => {
+      const ps = buildDividerPanels({ spanX: 70, spanY: 50, dividerHeight: 30, t: 3, kerf: 0.1, lengthDividers: 1, widthDividers: 1 });
+      assert(ps.length === 2 && ps.every((p) => p.pose === undefined), 'sin frame no debía haber pose');
+    });
+
+    // Deslizante de canal: el caso importante. Un lateral espejo mal puesto
+    // mostraría una caja que no arma, así que además de las pruebas generales
+    // se mira el canal en el mundo y se prueba que un lateral volteado falle.
+    runPoseChecks('deslizante de canal', buildSlidingBox(SLIDE), SLIDE);
+    const SLIDE_DIV = { ...SLIDE, lengthDividers: 2, widthDividers: 1, dividerMode: 'tabbed' };
+    runPoseChecks('deslizante de canal con divisores', buildSlidingBox(SLIDE_DIV), SLIDE_DIV);
+    check('pose deslizante de canal: el canal cae a la altura de la tapa en el mundo', () => {
+      const b = buildSlidingBox(SLIDE);
+      for (const id of ['left', 'right', 'back']) {
+        const panel = b.panels.find((p) => p.id === id);
+        const groove = panel.features.find((f) => f.kind === 'pocket');
+        const zs = groove.points.map((q) => toWorld(panel.pose, q).z);
+        assert(near(Math.min(...zs), b.groove.floor) && near(Math.max(...zs), b.groove.top),
+          `${id}: canal en [${Math.min(...zs)}, ${Math.max(...zs)}], esperaba [${b.groove.floor}, ${b.groove.top}]`);
+      }
+    });
+    check('pose deslizante de canal: un lateral volteado no pasa', () => {
+      // Nota: darle a LEFT la pose de RIGHT lo manda al otro lado de la caja
+      // MIRANDO hacia dentro, y eso es una pose válida para la prueba de cara
+      // interior; no sirve de control. El error real es LEFT en su sitio pero
+      // con la cara dibujada (y su canal) hacia afuera: normal contraria.
+      const b = buildSlidingBox(SLIDE);
+      const left = b.panels.find((p) => p.id === 'left');
+      const n = { x: -1, y: 0, z: 0 }, up = { x: 0, y: 0, z: 1 };
+      const volteado = makePose({
+        origin: rectOrigin({ center: { x: -b.outer.length / 2 + SLIDE.thickness / 2, y: 0, z: left.height / 2 },
+          width: left.width, height: left.height, normal: n, up }),
+        normal: n, up, group: 'cuerpo', thickness: left.pose.thickness, open: poseSlide({ x: 1, y: 0, z: 0 }, 1),
+      });
+      const copia = { ...b, panels: b.panels.map((p) => (p.id === 'left' ? { ...p, pose: volteado } : p)) };
+      assert(faceInwardErrors(b).length === 0, 'la caja real no debía dar errores');
+      const errs = faceInwardErrors(copia);
+      assert(errs.length > 0 && errs[0].startsWith('left'), `LEFT volteado debía dar error: ${errs.join(' | ')}`);
+    });
+
+    // La junta del frente de cada lateral (la corta) debe caer en el plano del
+    // frente; la del fondo (más alta) en el plano del fondo. Si LEFT y RIGHT
+    // se intercambian, al frente le tocaría la junta del fondo y no monta.
+    function frontJointErrors(box, cfg) {
+      const Wo = box.outer.width, t = cfg.thickness;
+      const frontHeight = box.panels.find((p) => p.id === 'front').height;
+      const errs = [];
+      for (const id of ['left', 'right']) {
+        const panel = box.panels.find((p) => p.id === id);
+        const ws = panel.points.map((q) => toWorld(panel.pose, q));
+        const atFront = ws.filter((w) => w.y < -Wo / 2 + t - 1e-6);
+        const atBack = ws.filter((w) => w.y > Wo / 2 - t + 1e-6);
+        // Las espigas de cada junta quedan centradas en la altura útil de la
+        // pared que las lleva, así que el centro de las que caen en el plano
+        // del frente debe ser el del frente, y el de las del fondo el del fondo.
+        // (El techo de las espigas no distingue: las del fondo, 69.25, también
+        // quedan por debajo del alto del frente, 77.)
+        const mid = (list) => (Math.min(...list.map((w) => w.z)) + Math.max(...list.map((w) => w.z))) / 2;
+        if (atFront.length === 0) errs.push(`${id}: no hay espigas en el plano del frente`);
+        else {
+          if (Math.max(...atFront.map((w) => w.z)) > frontHeight + 1e-6) errs.push(`${id}: espigas del frente por encima del frente`);
+          if (Math.abs(mid(atFront) - frontHeight / 2) > 0.2) errs.push(`${id}: las espigas del frente están centradas en z ${mid(atFront).toFixed(2)}, esperaba ${(frontHeight / 2).toFixed(2)}`);
+        }
+        if (atBack.length === 0) errs.push(`${id}: no hay espigas en el plano del fondo`);
+        else if (Math.abs(mid(atBack) - (box.realOuterHeight ?? box.outer.height) / 2) > 0.2) {
+          errs.push(`${id}: las espigas del fondo están centradas en z ${mid(atBack).toFixed(2)}, esperaba ${((box.realOuterHeight ?? box.outer.height) / 2).toFixed(2)}`);
+        }
+      }
+      return errs;
+    }
+    check('pose deslizante de canal: la junta del frente de cada lateral cae en el frente', () => {
+      const errs = frontJointErrors(buildSlidingBox(SLIDE), SLIDE);
+      assert(errs.length === 0, errs.join(' | '));
+    });
+    check('pose deslizante de canal: la junta del frente detecta laterales intercambiados', () => {
+      const b = buildSlidingBox(SLIDE);
+      const l = b.panels.find((p) => p.id === 'left'), r = b.panels.find((p) => p.id === 'right');
+      const swapped = { ...b, panels: b.panels.map((p) => (p === l ? { ...p, pose: r.pose } : p === r ? { ...p, pose: l.pose } : p)) };
+      assert(frontJointErrors(b, SLIDE).length === 0, 'la caja real no debía dar errores');
+      assert(frontJointErrors(swapped, SLIDE).length > 0, 'no detectó los laterales intercambiados');
+    });
+
+    // Deslizante con soportes pegados: FRONT es más bajo que BACK, así que los
+    // laterales también son espejo y se aplican las mismas pruebas de junta.
+    runPoseChecks('deslizante con soportes', buildSlidingSupportBox(SUPPORTS), SUPPORTS);
+    const SUPPORTS_DIV = { ...SUPPORTS, lengthDividers: 2, widthDividers: 1, dividerMode: 'tabbed' };
+    runPoseChecks('deslizante con soportes y divisores', buildSlidingSupportBox(SUPPORTS_DIV), SUPPORTS_DIV);
+    // Bisagra simple. Con divisores: se probó primero lengthDividers 2 +
+    // widthDividers 1 (la regla de banda barrida puede rechazar divisores de
+    // ancho cerca del fondo); ver el comentario de abajo si hubo que bajarlo.
+    runPoseChecks('bisagra', buildHingedBox(HINGED), HINGED);
+    const HINGED_POSE_DIV = { ...HINGED, lengthDividers: 2, widthDividers: 1, dividerMode: 'tabbed' };
+    runPoseChecks('bisagra con divisores', buildHingedBox(HINGED_POSE_DIV), HINGED_POSE_DIV);
+    check('pose bisagra: el agujero de cada lateral cae sobre el eje de la tapa', () => {
+      const b = buildHingedBox(HINGED);
+      const lid = b.panels.find((p) => p.id === 'lid');
+      const pivot = lid.pose.open.pivot;
+      for (const id of ['left', 'right']) {
+        const panel = b.panels.find((p) => p.id === id);
+        const hole = panel.features.find((f) => f.id === 'hinge-hole');
+        const c = {
+          x: hole.points.reduce((s, q) => s + q.x, 0) / hole.points.length,
+          y: hole.points.reduce((s, q) => s + q.y, 0) / hole.points.length,
+        };
+        const w = toWorld(panel.pose, c);
+        assert(near(w.y, pivot.y, 1e-6) && near(w.z, pivot.z, 1e-6),
+          `${id}: agujero en y ${w.y}, z ${w.z}; eje en y ${pivot.y}, z ${pivot.z}`);
+      }
+    });
+    check('pose bisagra: al abrir, el canto delantero de la tapa sube', () => {
+      const b = buildHingedBox(HINGED);
+      const lid = b.panels.find((p) => p.id === 'lid');
+      const edge = toWorld(lid.pose, { x: lid.width / 2, y: 0 });
+      const closed = applyOpen(lid.pose, edge, 0);
+      const open = applyOpen(lid.pose, edge, 1);
+      const lidD = lid.height;
+      assert(open.z - closed.z >= lidD / 2, `sube ${open.z - closed.z}, esperaba al menos ${lidD / 2}`);
+    });
+
+    runPoseChecks('bisagra doble', buildHingedDoubleBox(HINGED_DOUBLE), HINGED_DOUBLE);
+    const HINGED_DOUBLE_POSE_DIV = { ...HINGED_DOUBLE, lengthDividers: 2, widthDividers: 1, dividerMode: 'tabbed' };
+    runPoseChecks('bisagra doble con divisores', buildHingedDoubleBox(HINGED_DOUBLE_POSE_DIV), HINGED_DOUBLE_POSE_DIV);
+    check('pose bisagra doble: cada par de agujeros cae sobre el eje de su mitad', () => {
+      const b = buildHingedDoubleBox(HINGED_DOUBLE);
+      const halves = ['lid-left', 'lid-right'].map((id) => b.panels.find((p) => p.id === id));
+      const zAxis = halves[0].pose.open.pivot.z;
+      const counts = [0, 0];
+      for (const id of ['front', 'back']) {
+        const panel = b.panels.find((p) => p.id === id);
+        const holes = panel.features.filter((f) => f.id === 'hinge-hole-left' || f.id === 'hinge-hole-right');
+        assert(holes.length === 2, `${id}: ${holes.length} agujeros, esperaba 2`);
+        for (const hole of holes) {
+          const c = {
+            x: hole.points.reduce((s, q) => s + q.x, 0) / hole.points.length,
+            y: hole.points.reduce((s, q) => s + q.y, 0) / hole.points.length,
+          };
+          const w = toWorld(panel.pose, c);
+          assert(near(w.z, zAxis, 1e-6), `${id}/${hole.id}: z ${w.z}, eje en z ${zAxis}`);
+          const k = halves.findIndex((h) => near(w.x, h.pose.open.pivot.x, 1e-6));
+          assert(k >= 0, `${id}/${hole.id}: x ${w.x} no coincide con ningún eje`);
+          counts[k]++;
+        }
+      }
+      assert(counts[0] === 2 && counts[1] === 2, `agujeros por mitad: ${counts.join(' y ')}, esperaba 2 y 2`);
+    });
+    check('pose bisagra doble: al abrir, el canto interior de cada mitad sube', () => {
+      const b = buildHingedDoubleBox(HINGED_DOUBLE);
+      const cases = [['lid-left', (l) => l.width], ['lid-right', () => 0]];
+      for (const [id, xOf] of cases) {
+        const lid = b.panels.find((p) => p.id === id);
+        const edge = toWorld(lid.pose, { x: xOf(lid), y: lid.height / 2 });
+        const closed = applyOpen(lid.pose, edge, 0);
+        const open = applyOpen(lid.pose, edge, 1);
+        assert(open.z - closed.z >= lid.width / 2, `${id}: sube ${open.z - closed.z}, esperaba al menos ${lid.width / 2}`);
+      }
+    });
+
+    check('pose soportes: la tapa apoya en el riel', () => {
+      const b = buildSlidingSupportBox(SUPPORTS);
+      const rail = slidingSupportHeights(SUPPORTS).railTop;
+      const lid = worldBounds(b.panels.find((p) => p.id === 'lid'));
+      const sup = worldBounds(b.panels.find((p) => p.id === 'support-1'));
+      assert(near(lid.minZ, rail), `LID minZ ${lid.minZ} ≠ ${rail}`);
+      assert(near(sup.maxZ, rail), `SUPPORT 1 maxZ ${sup.maxZ} ≠ ${rail}`);
+    });
+    check('pose soportes: la junta del frente de cada lateral cae en el frente', () => {
+      const errs = frontJointErrors(buildSlidingSupportBox(SUPPORTS), SUPPORTS);
+      assert(errs.length === 0, errs.join(' | '));
+    });
+    check('pose soportes: la junta del frente detecta laterales intercambiados', () => {
+      const b = buildSlidingSupportBox(SUPPORTS);
+      const l = b.panels.find((p) => p.id === 'left'), r = b.panels.find((p) => p.id === 'right');
+      const swapped = { ...b, panels: b.panels.map((p) => (p === l ? { ...p, pose: r.pose } : p === r ? { ...p, pose: l.pose } : p)) };
+      assert(frontJointErrors(b, SUPPORTS).length === 0, 'la caja real no debía dar errores');
+      assert(frontJointErrors(swapped, SUPPORTS).length > 0, 'no detectó los laterales intercambiados');
+    });
+
+    // 3D: el visor (viewer.js). Se carga afuera de check (check es síncrono).
+    // Escenario de 300×200 pegado al body pero fuera de pantalla; se quita al final.
+    let viewerMod = null;
+    try { viewerMod = await import('./js/preview3d/viewer.js'); } catch (e) { viewerMod = e.message; }
+    const MSG_3D_ERRORS = 'Corrige los errores para ver la caja en 3D.';
+    const MSG_3D_NO_WEBGL = 'Tu navegador no puede mostrar la vista 3D (WebGL apagado).';
+    const stage3d = document.createElement('div');
+    stage3d.style.cssText = 'position:absolute;left:-10000px;top:0;width:300px;height:200px';
+    document.body.appendChild(stage3d);
+    const withViewer = (fn) => {
+      assert(typeof viewerMod !== 'string', viewerMod);
+      const v = viewerMod.createViewer(stage3d);
+      try { fn(v); } finally { v.dispose(); }
+    };
+    check('3D visor: una caja válida da una malla por capa', () => withViewer((v) => {
+      v.show(buildBox(FINGER));
+      const s = v.stats();
+      assert(s.meshes === 6 && s.message === null, `mallas ${s.meshes}, mensaje ${s.message}`);
+    }));
+    check('3D visor: recalcular no acumula mallas', () => withViewer((v) => {
+      v.show(buildBox(FLAT_GRIP));
+      const first = v.stats().meshes;
+      v.show(buildBox(FLAT_GRIP));
+      const second = v.stats().meshes;
+      assert(first > 0 && first === second, `primera ${first}, segunda ${second}`);
+    }));
+    check('3D visor: caja con errores no lanza y avisa', () => withViewer((v) => {
+      v.show(buildBox(FINGER));
+      v.show({ errors: ['x'], warnings: [], panels: [] });
+      const s = v.stats();
+      assert(s.meshes === 0, `mallas ${s.meshes}`);
+      assert(s.message === MSG_3D_ERRORS, `mensaje ${s.message}`);
+      assert(stage3d.textContent.includes(MSG_3D_ERRORS), 'el aviso no se ve en el contenedor');
+    }));
+    check('3D visor: una pieza sin pose no deja ver una caja incompleta', () => withViewer((v) => {
+      const box = buildBox(FINGER);
+      const panels = box.panels.map((p, i) => {
+        if (i !== 0) return p;
+        const { pose, ...rest } = p;
+        return rest;
+      });
+      v.show({ ...box, panels });
+      const s = v.stats();
+      assert(s.meshes === 0, `mallas ${s.meshes}`);
+      assert(s.message === 'Esta caja todavía no tiene vista 3D.', `mensaje ${s.message}`);
+    }));
+    check('3D visor: sin WebGL avisa en vez de romper', () => {
+      assert(typeof viewerMod !== 'string', viewerMod);
+      const original = HTMLCanvasElement.prototype.getContext;
+      let v = null;
+      try {
+        HTMLCanvasElement.prototype.getContext = () => null;
+        v = viewerMod.createViewer(stage3d);
+        assert(v.stats().message === MSG_3D_NO_WEBGL, `mensaje ${v.stats().message}`);
+        assert(stage3d.textContent.includes(MSG_3D_NO_WEBGL), 'el aviso no se ve en el contenedor');
+        v.show(buildBox(FINGER));
+        assert(v.stats().meshes === 0, 'sin WebGL no debía armar mallas');
+      } finally {
+        HTMLCanvasElement.prototype.getContext = original;
+        v?.dispose();
+      }
+    });
+    // Apertura: etapas por grupo y deslizador (open-stages.js, viewer.setOpen).
+    let stagesMod = null;
+    try { stagesMod = await import('./js/preview3d/open-stages.js'); } catch (e) { stagesMod = e.message; }
+    check('apertura: cada grupo arranca y termina donde dice el spec', () => {
+      assert(typeof stagesMod !== 'string', stagesMod);
+      const g = stagesMod.groupProgress;
+      assert(g('tapa', 0.5) === 1, `tapa 0.5 = ${g('tapa', 0.5)}`);
+      assert(g('cuerpo', 0.3) === 0, `cuerpo 0.3 = ${g('cuerpo', 0.3)}`);
+      assert(g('cuerpo', 1) === 1, `cuerpo 1 = ${g('cuerpo', 1)}`);
+      assert(near(g('divisor', 0.45), 0.5), `divisor 0.45 = ${g('divisor', 0.45)}`);
+      assert(near(g('saliente', 0.25), 0.5), `saliente 0.25 = ${g('saliente', 0.25)}`);
+    });
+    check('apertura: a 0 % la caja está armada', () => withViewer((v) => {
+      v.show(buildBox(FLAT_GRIP));
+      const a = v.bounds();
+      v.setOpen(0);
+      const b = v.bounds();
+      for (const k of ['x', 'y', 'z']) {
+        assert(near(a.min[k], b.min[k]) && near(a.max[k], b.max[k]), `eje ${k} cambió`);
+      }
+      v.setOpen(1);
+      assert(v.bounds().max.z > a.max.z + 1, 'a 100 % la caja debía abrirse');
+    }));
+    check('apertura: a 100 % la tapa de la deslizante salió por el frente', () => withViewer((v) => {
+      v.show(buildSlidingBox(SLIDE));
+      v.setOpen(1);
+      const lid = v.pieceBounds('lid');
+      assert(!lid.isEmpty(), 'la pieza "lid" no existe en el visor');
+      assert(lid.max.y < -SLIDE.width / 2, `max.y de la tapa = ${lid.max.y}`);
+    }));
+    // Clic en una pieza, arrastre que no cuenta y PNG (task 12).
+    const clickAt = (v, dx, dy, upDx = 0) => {
+      const r = stage3d.querySelector('canvas').getBoundingClientRect();
+      const cx = r.left + r.width / 2 + dx, cy = r.top + r.height / 2 + dy;
+      const c = stage3d.querySelector('canvas');
+      const ev = (type, x) => new PointerEvent(type, { clientX: x, clientY: cy, bubbles: true, buttons: type === 'pointerup' ? 0 : 1 });
+      c.dispatchEvent(ev('pointerdown', cx));
+      c.dispatchEvent(ev('pointerup', cx + upDx));
+    };
+    check('3D: el clic en una pieza devuelve su nombre', () => withViewer((v) => {
+      const box = buildBox(FINGER);
+      v.show(box);
+      v.reframe();
+      const picks = [];
+      v.onPick((l) => picks.push(l));
+      clickAt(v, 0, 0);
+      assert(picks.length === 1, `onPick llamado ${picks.length} veces`);
+      assert(box.panels.some((p) => p.label === picks[0]), `"${picks[0]}" no es una pieza de la caja`);
+      clickAt(v, 0, 0, 30);
+      assert(picks.length === 1, 'un arrastre no debía contar como clic');
+      clickAt(v, -140, -90);
+      assert(picks.length === 2 && picks[1] === null, `clic en el vacío dio ${picks[1]}`);
+    }));
+    try {
+      assert(typeof viewerMod !== 'string', viewerMod);
+      const v = viewerMod.createViewer(stage3d);
+      try {
+        v.show(buildBox(FINGER));
+        v.reframe();
+        const blob = await v.toPNG();
+        assert(blob && blob.type === 'image/png' && blob.size > 0, 'toPNG no devolvió un PNG');
+        const bmp = await createImageBitmap(blob);
+        const cv = document.createElement('canvas');
+        cv.width = bmp.width; cv.height = bmp.height;
+        const ctx = cv.getContext('2d');
+        ctx.drawImage(bmp, 0, 0);
+        const seen = new Set();
+        for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) {
+          const d = ctx.getImageData(Math.floor((i + 0.5) * bmp.width / 5), Math.floor((j + 0.5) * bmp.height / 5), 1, 1).data;
+          seen.add(`${d[0]},${d[1]},${d[2]}`);
+        }
+        assert(seen.size >= 2, `el PNG sale en blanco: ${seen.size} color(es) en 25 píxeles`);
+        results.push({ name: '3D: el PNG no sale en blanco', ok: true });
+      } finally { v.dispose(); }
+    } catch (e) { results.push({ name: '3D: el PNG no sale en blanco', ok: false, msg: e.message }); }
+    check('3D: sin WebGL el PNG no lanza en seco', () => {
+      const original = HTMLCanvasElement.prototype.getContext;
+      let v = null;
+      try {
+        HTMLCanvasElement.prototype.getContext = () => null;
+        v = viewerMod.createViewer(stage3d);
+        const p = v.toPNG();
+        assert(p instanceof Promise, 'toPNG debía devolver una promesa');
+        v.onPick(() => {});
+      } finally {
+        HTMLCanvasElement.prototype.getContext = original;
+        v?.dispose();
+      }
+    });
+    stage3d.remove();
 
     const failed = results.filter((r) => !r.ok);
     document.getElementById('summary').textContent =

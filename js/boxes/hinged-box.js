@@ -1,4 +1,5 @@
 import { holeFeature, panelOutline } from '../core/panel.js';
+import { makePose, rectOrigin, slide, swing } from '../core/pose.js';
 import {
   autoTabWidthFromSpans,
   commonWarnings,
@@ -345,8 +346,39 @@ export function buildHingedBox(params) {
   const dividerPanels = buildDividerPanels({
     spanX, spanY, dividerHeight: innerHeight, t, kerf, lengthDividers, widthDividers,
     topCornerCut: dividerTopCut, tabs: dividerTabs,
+    frame: { xStart: -Lo / 2 + t, yStart: -Wo / 2 + t, zBottom: t, lift: Ho },
   });
   const panels = [generic.bottom, front, left, lid, generic.back, right, ...dividerPanels];
+
+  // Dónde queda cada pieza en la caja armada (z = 0 es el piso). Las paredes
+  // llegan a Ho y la tapa queda adentro de la abertura, a ras del canto. Los
+  // laterales miden Ho + postHeight porque su (0,0) es la punta del poste.
+  const V = (x, y, z) => ({ x, y, z });
+  const out = Math.max(Lo, Wo, Ho) / 2;
+  const place = (panel, { center, normal, up, group, thickness = t, open }) => {
+    panel.pose = makePose({
+      origin: rectOrigin({ center, width: panel.width, height: panel.height, normal, up }),
+      normal, up, group, thickness, open,
+    });
+  };
+  const neg = (n) => V(-n.x, -n.y, -n.z);
+  const wall = (panel, center, normal) => place(panel, {
+    center, normal, up: V(0, 0, 1), group: 'cuerpo', open: slide(neg(normal), out),
+  });
+  place(generic.bottom, {
+    center: V(0, 0, t / 2), normal: V(0, 0, 1), up: V(0, 1, 0), group: 'cuerpo', open: slide(V(0, 0, -1), out),
+  });
+  wall(front, V(0, -Wo / 2 + t / 2, Ho / 2), V(0, 1, 0));
+  wall(generic.back, V(0, Wo / 2 - t / 2, Ho / 2), V(0, -1, 0));
+  wall(left, V(-Lo / 2 + t / 2, 0, (Ho + postHeight) / 2), V(1, 0, 0));
+  wall(right, V(Lo / 2 - t / 2, 0, (Ho + postHeight) / 2), V(-1, 0, 0));
+  // La tapa gira sobre las espigas: eje paralelo a x a tl/2 bajo el canto.
+  // El eje (−1,0,0) hace que el canto delantero suba al abrir.
+  place(lid, {
+    center: V(0, -Wo / 2 + lidY0 + lidD / 2, Ho - tl / 2),
+    normal: V(0, 0, -1), up: V(0, -1, 0), group: 'tapa', thickness: tl,
+    open: swing(V(-1, 0, 0), V(0, -Wo / 2 + pivotY, Ho - tl / 2), 95),
+  });
 
   return {
     panels,

@@ -41,6 +41,15 @@ const gripFields = document.getElementById('gripFields');
 const gripDiameterEl = document.getElementById('gripDiameter');
 const gripStemSpanEl = document.getElementById('gripStemSpan');
 const dividerModeField = document.getElementById('dividerModeField');
+const tabPieces = document.getElementById('tabPieces');
+const tab3d = document.getElementById('tab3d');
+const preview3d = document.getElementById('preview3d');
+const reframeBtn = document.getElementById('reframeBtn');
+const openControl = document.getElementById('openControl');
+const openSlider = document.getElementById('openSlider');
+const pngBtn = document.getElementById('pngBtn');
+const pieceLabel = document.getElementById('pieceLabel');
+const dimsPanel = document.getElementById('dimsPanel');
 
 // Cada tipo de tapa trae su generador y su cálculo de espiga automática: el
 // tramo de junta más corto no es el mismo en una caja cerrada que en una con
@@ -60,6 +69,11 @@ const builderFor = (params) => BUILDERS[builderKey(params)] ?? BUILDERS.default;
 
 let currentSvg = null;
 let currentBox = null;
+// Vista 3D: three.js se carga sólo la primera vez que se abre la pestaña.
+let viewer = null;
+let viewerLoading = null;
+let lastBox = null; // la última caja calculada, también si trae errores
+let view3dOpen = false;
 
 function readParams() {
   const number = (id) => parseFloat(document.getElementById(id).value);
@@ -163,6 +177,43 @@ function readParams() {
   return params;
 }
 
+// Nombre de la pieza elegida en la vista 3D (null = clic en el vacío).
+function showPieceName(label) {
+  pieceLabel.textContent = label ?? '';
+  pieceLabel.hidden = !label;
+}
+
+// Medidas interiores y volumen, en la vista 3D. Se oculta si la caja tiene errores.
+function showDims(box) {
+  if (!box || box.errors.length > 0) {
+    dimsPanel.hidden = true;
+    return;
+  }
+  const { length, width, height } = box.inner;
+  const liters = round((length * width * height) / 1e6, 2);
+  dimsPanel.textContent =
+    `Interior ${round(length, 1)} × ${round(width, 1)} × ${round(height, 1)} mm · ${liters} L`;
+  dimsPanel.hidden = false;
+}
+
+// Nombre del archivo descargado (SVG o PNG): medidas exteriores, grosor y tipo de tapa.
+function exportFileName(box, ext) {
+  const { length, width, height } = box.outer;
+  const thickness = document.getElementById('thickness').value;
+  const SUFFIXES = {
+    flat: '-tapaplana',
+    sliding: '-deslizante',
+    slidingSupports: '-deslizante-soportes',
+    hinged: '-bisagra',
+    hingedDouble: '-bisagra-doble',
+  };
+  const lid = SUFFIXES[builderKey({
+    lidType: form.elements.lidType.value,
+    slideMethod: form.elements.slideMethod.value,
+  })] ?? '';
+  return `boxmaker-${round(length, 1)}x${round(width, 1)}x${round(height, 1)}-t${thickness}${lid}.${ext}`;
+}
+
 function showMessages(messages, className) {
   for (const message of messages) {
     const el = document.createElement('div');
@@ -175,6 +226,16 @@ function showMessages(messages, className) {
 function recompute() {
   const params = readParams();
   const box = builderFor(params).build(params);
+  lastBox = box;
+  // El visor 3D nunca debe congelar la vista de piezas si algo inesperado falla.
+  try {
+    if (view3dOpen && viewer) viewer.show(box);
+  } catch (e) {
+    console.error(e);
+  }
+  showPieceName(null);
+  showDims(box);
+  pngBtn.disabled = !viewer || box.errors.length > 0;
 
   warningsEl.replaceChildren();
   showMessages(box.errors, 'error');
@@ -228,6 +289,81 @@ function recompute() {
   engraveNote.hidden = notes.length === 0;
 }
 
+// Pestañas "Piezas | 3D".
+function selectTab(open3d) {
+  view3dOpen = open3d;
+  tabPieces.setAttribute('aria-selected', String(!open3d));
+  tab3d.setAttribute('aria-selected', String(open3d));
+  tabPieces.tabIndex = open3d ? -1 : 0;
+  tab3d.tabIndex = open3d ? 0 : -1;
+  preview.hidden = open3d;
+  preview3d.hidden = !open3d;
+  reframeBtn.hidden = !open3d;
+  pngBtn.hidden = !open3d;
+  openControl.hidden = !open3d;
+  if (open3d) open3dView();
+}
+
+let loadErrorEl = null;
+async function open3dView() {
+  loadErrorEl?.remove();
+  loadErrorEl = null;
+  try {
+    if (!viewerLoading) {
+      viewerLoading = import('../preview3d/viewer.js').then(({ createViewer }) => {
+        viewer = createViewer(preview3d);
+        viewer.onPick(showPieceName);
+      });
+    }
+    await viewerLoading;
+  } catch (e) {
+    viewerLoading = null;
+    // El error va en su propio elemento: no se borran las etiquetas del contenedor.
+    loadErrorEl = document.createElement('p');
+    loadErrorEl.className = 'viewer3d-message';
+    loadErrorEl.textContent = 'No se pudo cargar la vista 3D. Recarga la página para intentarlo de nuevo.';
+    preview3d.appendChild(loadErrorEl);
+    console.error(e);
+    return;
+  }
+  // El visor nuevo arranca cerrado: se le pasa lo que marca el deslizador.
+  viewer.setOpen(openSlider.value / 100);
+  pngBtn.disabled = !lastBox || lastBox.errors.length > 0;
+  if (view3dOpen && lastBox) viewer.show(lastBox);
+}
+
+tabPieces.addEventListener('click', () => selectTab(false));
+tab3d.addEventListener('click', () => selectTab(true));
+// Flechas izquierda/derecha para moverse entre pestañas (patrón ARIA de tabs).
+for (const tab of [tabPieces, tab3d]) {
+  tab.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const other = tab === tabPieces ? tab3d : tabPieces;
+    other.focus();
+    selectTab(other === tab3d);
+  });
+}
+reframeBtn.addEventListener('click', () => viewer?.reframe());
+pngBtn.addEventListener('click', async () => {
+  if (!viewer || !lastBox || lastBox.errors.length > 0) return;
+  try {
+    const blob = await viewer.toPNG();
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = exportFileName(lastBox, 'png');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    console.error(e);
+  }
+});
+openSlider.addEventListener('input', () => viewer?.setOpen(openSlider.value / 100));
+
 function debounce(fn, delay) {
   let timer;
   return () => {
@@ -241,20 +377,7 @@ form.addEventListener('change', recompute);
 
 downloadBtn.addEventListener('click', () => {
   if (!currentSvg || !currentBox) return;
-  const { length, width, height } = currentBox.outer;
-  const thickness = document.getElementById('thickness').value;
-  const SUFFIXES = {
-    flat: '-tapaplana',
-    sliding: '-deslizante',
-    slidingSupports: '-deslizante-soportes',
-    hinged: '-bisagra',
-    hingedDouble: '-bisagra-doble',
-  };
-  const lid = SUFFIXES[builderKey({
-    lidType: form.elements.lidType.value,
-    slideMethod: form.elements.slideMethod.value,
-  })] ?? '';
-  downloadSvg(currentSvg, `boxmaker-${round(length, 1)}x${round(width, 1)}x${round(height, 1)}-t${thickness}${lid}.svg`);
+  downloadSvg(currentSvg, exportFileName(currentBox, 'svg'));
 });
 
 recompute();

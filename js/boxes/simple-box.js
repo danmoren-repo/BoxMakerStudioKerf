@@ -1,4 +1,5 @@
 import { panelOutline } from '../core/panel.js';
+import { makePose, rectOrigin, slide } from '../core/pose.js';
 import {
   gripDiameterFor, gripStemSpanFor, gripGeometry,
   buildTopHole, buildInsertPanel, buildHandlePanels,
@@ -203,7 +204,47 @@ export function buildBox(params) {
 
   panels.push(...buildDividerPanels({
     spanX, spanY, dividerHeight, t, kerf, lengthDividers, widthDividers, tabs: dividerTabs,
+    frame: { xStart: -Lo / 2 + t, yStart: -Wo / 2 + t, zBottom: t, lift: Ho },
   }));
+
+  // Dónde queda cada pieza en la caja armada (z = 0 es el piso).
+  const V = (x, y, z) => ({ x, y, z });
+  const lift = Ho / 2;
+  const out = Math.max(Lo, Wo, Ho) / 2;
+  const place = (panel, { center, normal, up, group, open, w = panel.width, h = panel.height }) => {
+    panel.pose = makePose({
+      origin: rectOrigin({ center, width: w, height: h, normal, up }),
+      normal, up, group, thickness: t, open,
+    });
+  };
+  const neg = (n) => V(-n.x, -n.y, -n.z);
+  const byId = (id) => panels.find((p) => p.id === id);
+  const wall = (id, center, normal) => place(byId(id), {
+    center, normal, up: V(0, 0, 1), group: 'cuerpo', open: slide(neg(normal), out),
+  });
+  place(byId('bottom'), {
+    center: V(0, 0, t / 2), normal: V(0, 0, 1), up: V(0, 1, 0), group: 'cuerpo', open: slide(V(0, 0, -1), out),
+  });
+  wall('front', V(0, -Wo / 2 + t / 2, wallHeight / 2), V(0, 1, 0));
+  wall('back', V(0, Wo / 2 - t / 2, wallHeight / 2), V(0, -1, 0));
+  wall('left', V(-Lo / 2 + t / 2, 0, wallHeight / 2), V(1, 0, 0));
+  wall('right', V(Lo / 2 - t / 2, 0, wallHeight / 2), V(-1, 0, 0));
+  place(byId('top'), {
+    center: V(0, 0, Ho - t / 2), normal: V(0, 0, -1), up: V(0, 1, 0), group: 'tapa', open: slide(V(0, 0, 1), lift),
+  });
+  if (gripEnabled) {
+    place(byId('top-insert'), {
+      center: V(0, 0, Ho - 1.5 * t), normal: V(0, 0, -1), up: V(0, 1, 0), group: 'tapa', open: slide(V(0, 0, 1), lift),
+    });
+    // El (0,0) de las mitades de la manija es el centro de la base del domo.
+    const handleOpen = slide(V(0, 0, 1), lift + gd / 2 + 2 * t + 10);
+    place(byId('handle-a'), {
+      center: V(0, 0, Ho), normal: V(0, 1, 0), up: V(0, 0, 1), group: 'saliente', open: handleOpen, w: 0, h: 0,
+    });
+    place(byId('handle-b'), {
+      center: V(0, 0, Ho), normal: V(1, 0, 0), up: V(0, 0, 1), group: 'saliente', open: handleOpen, w: 0, h: 0,
+    });
+  }
 
   return {
     panels,

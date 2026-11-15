@@ -1,5 +1,6 @@
 import { EPS } from '../core/geometry.js';
 import { rectHoleFeature } from '../core/panel.js';
+import { makePose, rectOrigin, slide } from '../core/pose.js';
 
 // Posiciones a distancias iguales dentro de un tramo, sin tocar los
 // extremos: con `count` divisores, el tramo queda partido en `count + 1`
@@ -164,6 +165,11 @@ export function dividerWarnings({
 // pared trasera. En la bisagra doble es la de ancho, porque ahí cada mitad
 // gira sobre un eje de adelante hacia atrás pegado a su lateral.
 //
+// `frame` ({ xStart, yStart, zBottom, lift }), opcional, dice dónde queda el
+// hueco útil en la caja armada: xStart/yStart son el x/y del mundo donde
+// empieza, zBottom la cara de arriba del fondo y lift cuánto suben al abrir.
+// Con él cada divisor recibe su pose; sin él las placas salen sin pose.
+//
 // El recorte vive en el canto de ARRIBA, igual que las muescas de la placa de
 // ancho — y no caben los dos en el mismo canto. En vez de complicar el dibujo,
 // las dos placas intercambian desde qué canto se entallan: al cruce a media
@@ -171,7 +177,7 @@ export function dividerWarnings({
 // placa que lleva el recorte siempre entalla desde abajo.
 export function buildDividerPanels({
   spanX, spanY, dividerHeight, t, kerf, lengthDividers, widthDividers,
-  topCornerCut, topCornerCutOn = 'length', tabs,
+  topCornerCut, topCornerCutOn = 'length', tabs, frame,
 }) {
   const Nl = resolveCount(lengthDividers);
   const Nw = resolveCount(widthDividers);
@@ -210,12 +216,43 @@ export function buildDividerPanels({
     } : undefined,
   });
 
+  // Cada placa lleva su propia pose; los puntos se comparten entre placas
+  // del mismo tipo y no se tocan.
+  const placeDivider = (panel, { center, width, normal }) => {
+    if (!frame) return panel;
+    const up = { x: 0, y: 0, z: 1 };
+    return {
+      ...panel,
+      pose: makePose({
+        origin: rectOrigin({ center, width, height: dividerHeight, normal, up }),
+        normal, up, group: 'divisor', thickness: t, open: slide(up, frame.lift),
+      }),
+    };
+  };
+  const zMid = frame ? frame.zBottom + dividerHeight / 2 : 0;
+  const posL = evenPositions(spanX, Nl);
+  const posW = evenPositions(spanY, Nw);
+
   const panels = [];
   for (let i = 1; i <= Nl; i += 1) {
-    panels.push({ id: `divider-l${i}`, label: `DIVIDER-L${i}`, points: lengthPoints });
+    panels.push(placeDivider(
+      { id: `divider-l${i}`, label: `DIVIDER-L${i}`, points: lengthPoints },
+      {
+        center: frame && { x: frame.xStart + posL[i - 1], y: frame.yStart + spanY / 2, z: zMid },
+        width: spanY,
+        normal: { x: 1, y: 0, z: 0 },
+      },
+    ));
   }
   for (let j = 1; j <= Nw; j += 1) {
-    panels.push({ id: `divider-w${j}`, label: `DIVIDER-W${j}`, points: widthPoints });
+    panels.push(placeDivider(
+      { id: `divider-w${j}`, label: `DIVIDER-W${j}`, points: widthPoints },
+      {
+        center: frame && { x: frame.xStart + spanX / 2, y: frame.yStart + posW[j - 1], z: zMid },
+        width: spanX,
+        normal: { x: 0, y: -1, z: 0 },
+      },
+    ));
   }
   return panels;
 }
