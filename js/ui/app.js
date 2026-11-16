@@ -80,6 +80,12 @@ function readParams() {
   const lidType = form.elements.lidType.value;
   const sliding = lidType === 'sliding';
 
+  // Sólo se ve la explicación de la tapa elegida: las cinco juntas saturaban
+  // el formulario.
+  for (const help of document.querySelectorAll('[data-lid-help]')) {
+    help.hidden = help.dataset.lidHelp !== lidType;
+  }
+
   const params = {
     length: number('length'),
     width: number('width'),
