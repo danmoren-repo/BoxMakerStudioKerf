@@ -1,0 +1,10 @@
+/* Paleta de Studio Kerf para el escenario 3D. El visor lee estos valores con
+   getComputedStyle; no cambian con el modo oscuro del sistema. */
+:root {
+  --ink: #f7f4ee;
+  --sheet: #e9ddc4;
+  --sheet-deep: #ddcda9;
+  --paper: #241b10;
+  --ember: #e85d2f;
+  --engrave: #93b8b2;
+}

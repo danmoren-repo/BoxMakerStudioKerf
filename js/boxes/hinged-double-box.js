@@ -1,4 +1,5 @@
 import { holeFeature, panelOutline } from '../core/panel.js';
+import { makePose, rectOrigin, slide, swing } from '../core/pose.js';
 import {
   buildDividerPanels, validateDividers, dividerWarnings, evenPositions,
   planDividerTabs, buildSlotFeatures, sweptBandLengthError,
@@ -351,8 +352,46 @@ export function buildHingedDoubleBox(params) {
   const dividerPanels = buildDividerPanels({
     spanX, spanY, dividerHeight: innerHeight, t, kerf, lengthDividers, widthDividers,
     topCornerCut: dividerTopCut, topCornerCutOn: 'width', tabs: dividerTabs,
+    frame: { xStart: -Lo / 2 + t, yStart: -Wo / 2 + t, zBottom: t, lift: Ho },
   });
   const panels = [generic.bottom, front, left, lidLeft, lidRight, back, right, ...dividerPanels];
+
+  // Dónde queda cada pieza en la caja armada (z = 0 es el piso). Las paredes
+  // llegan a Ho y las dos mitades de la tapa quedan adentro de la abertura, a
+  // ras del canto. Frontal y trasera declaran más alto que su cuerpo por los
+  // postes (viven en y_svg < 0), pero su (0,0) es el canto de la PARED: el
+  // rectángulo que se centra es Lo × Ho.
+  const V = (x, y, z) => ({ x, y, z });
+  const out = Math.max(Lo, Wo, Ho) / 2;
+  const place = (panel, { center, normal, up, group, thickness = t, open, height = panel.height }) => {
+    panel.pose = makePose({
+      origin: rectOrigin({ center, width: panel.width, height, normal, up }),
+      normal, up, group, thickness, open,
+    });
+  };
+  const neg = (n) => V(-n.x, -n.y, -n.z);
+  const wall = (panel, center, normal, height) => place(panel, {
+    center, normal, up: V(0, 0, 1), group: 'cuerpo', open: slide(neg(normal), out), height,
+  });
+  place(generic.bottom, {
+    center: V(0, 0, t / 2), normal: V(0, 0, 1), up: V(0, 1, 0), group: 'cuerpo', open: slide(V(0, 0, -1), out),
+  });
+  wall(front, V(0, -Wo / 2 + t / 2, Ho / 2), V(0, 1, 0), Ho);
+  wall(back, V(0, Wo / 2 - t / 2, Ho / 2), V(0, -1, 0), Ho);
+  wall(left, V(-Lo / 2 + t / 2, 0, Ho / 2), V(1, 0, 0));
+  wall(right, V(Lo / 2 - t / 2, 0, Ho / 2), V(-1, 0, 0));
+  // Cada mitad gira sobre su propio eje, paralelo a y (de adelante hacia
+  // atrás), a tl/2 bajo el canto y pivotInset de su lateral. El canto
+  // interior (el que da a la otra mitad) sube al abrir.
+  const zAxis = Ho - tl / 2;
+  place(lidLeft, {
+    center: V(-spanX / 4, 0, zAxis), normal: V(0, 0, -1), up: V(0, -1, 0), group: 'tapa', thickness: tl,
+    open: swing(V(0, -1, 0), V(-spanX / 2 + pivotInset, 0, zAxis), 95),
+  });
+  place(lidRight, {
+    center: V(spanX / 4, 0, zAxis), normal: V(0, 0, -1), up: V(0, -1, 0), group: 'tapa', thickness: tl,
+    open: swing(V(0, 1, 0), V(spanX / 2 - pivotInset, 0, zAxis), 95),
+  });
 
   return {
     panels,

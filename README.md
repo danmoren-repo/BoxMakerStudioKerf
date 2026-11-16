@@ -66,16 +66,28 @@ Con un material nuevo, lo primero es hacer un corte de prueba en cartón para ca
 
 - `js/core/` — geometría pura (segmentación de juntas, kerf, puntos de un panel). No sabe nada sobre "cajas": son funciones matemáticas reutilizables.
 - `js/boxes/` — los tipos de caja concretos: `simple-box.js` (caja cerrada y tapa plana), `sliding-box.js` (tapa deslizante), `sliding-support-box.js` (tapa deslizante con soportes pegados), `hinged-box.js` (tapa con bisagra), `hinged-double-box.js` (tapa con bisagra doble, reutiliza varios parámetros de `hinged-box.js`), `lid-grip.js` (agarradera de la tapa plana), `dividers.js` (divisores internos: columnas, filas, su ranura de cruce y sus cejillas hacia las paredes, reutilizado por los cinco tipos de tapa) y `shared.js` con lo que todos comparten.
+- `js/core/pose.js` — dónde va cada pieza en la caja armada (posición y orientación): matemática pura.
+- `js/preview3d/` — la vista 3D; se carga sólo al abrir la pestaña 3D.
 - `js/render/` — convierte la geometría en el SVG final (layout en la hoja, unidades en mm, exportación del archivo).
 - `js/ui/` — conecta el formulario HTML con todo lo anterior: lee los parámetros, recalcula en vivo y genera el nombre del archivo al descargar.
+
+Todo tipo de caja nuevo debe declarar la pose de cada pieza y sumar su `runPoseChecks` en `test.html`, o la pestaña 3D lo avisa en vez de dibujar la caja.
 
 Está separado así para que un futuro tipo de caja (por ejemplo una con tapa de bisagra) pueda reusar `js/core` sin tocarlo.
 
 ## Verificación
 
-Con el servidor local corriendo, abre http://localhost:8000/test.html. Es una página de self-checks que corre en el navegador y muestra una lista con cada prueba en verde (✔) o rojo (✘). Actualmente son **139 checks** (los de geometría compartida corren sobre los tipos de tapa que la comparten, más un bloque propio para cada tapa con bisagra): cubren desde que `buildBox` no produzca errores con parámetros válidos, la segmentación de juntas, que las espigas macho encajen exactamente en las ranuras hembra, el efecto del kerf, el modo de medidas interiores, el ancho de espiga automático, hasta un barrido de combinaciones de parámetros para asegurarse de que nada produzca `NaN`.
+Con el servidor local corriendo, abre http://localhost:8000/test.html. Es una página de self-checks que corre en el navegador y muestra una lista con cada prueba en verde (✔) o rojo (✘). Actualmente son **267 checks** (los de geometría compartida corren sobre los tipos de tapa que la comparten, más un bloque propio para cada tapa con bisagra): cubren desde que `buildBox` no produzca errores con parámetros válidos, la segmentación de juntas, que las espigas macho encajen exactamente en las ranuras hembra, el efecto del kerf, el modo de medidas interiores, el ancho de espiga automático, hasta un barrido de combinaciones de parámetros para asegurarse de que nada produzca `NaN`.
 
 Seis de esos checks vigilan específicamente las esquinas, que es donde este tipo de generador se rompe: que ninguna pieza tenga material más fino que el kerf (sería incortable), que las esquinas de las tapas frontales queden macizas, que una ranura que llega al borde lo haga sin dejar una lengüeta de medio kerf, que ningún contorno se doble sobre sí mismo (una línea recorrida dos veces = el láser cortando dos veces sobre el mismo sitio), que ninguna esquina quede sujeta por un puente de material más fino que el kerf (se caería al cortar), y que ninguna espiga del lateral invada la esquina por donde tiene que entrar la tapa deslizante (la tapa se quedaría a medio camino).
+
+## Vista 3D
+
+La pestaña **3D** muestra la caja armada, con sus piezas en su lugar, y un deslizador "Abrir" que separa la tapa y las piezas para ver cómo entran. Pasa el mouse por una pieza para resaltarla en ámbar y haz clic para ver su nombre; abajo a la izquierda se ven las medidas interiores y el volumen, y "Descargar PNG" baja la imagen de lo que estás viendo.
+
+Es una vista de presentación, **no sirve para revisar los cortes**: para eso están el SVG y la pestaña "Piezas".
+
+three.js vive en `vendor/three/` (copia local, sin CDN ni paso de compilación) y sólo se carga cuando abres la pestaña 3D. Cómo se actualiza está en `vendor/three/README.md`.
 
 ## Deploy a Cloudflare Pages
 
@@ -88,7 +100,6 @@ No hace falta ninguna variable de entorno ni backend: es un sitio 100% estático
 
 ## Qué falta (v2)
 
-- Vista 3D.
 - Nesting automático de los paneles en la hoja.
 - Split del plano por tamaño de la cama del láser.
 - Unidades en pulgadas.

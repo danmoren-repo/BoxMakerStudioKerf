@@ -1,4 +1,5 @@
 import { panelOutline, pocketFeature } from '../core/panel.js';
+import { makePose, rectOrigin, slide } from '../core/pose.js';
 import {
   autoTabWidthFromSpans,
   commonWarnings,
@@ -251,7 +252,41 @@ export function buildSlidingBox(params) {
   const lid = panels.find((panel) => panel.id === 'lid');
   panels.push(...buildDividerPanels({
     spanX, spanY, dividerHeight: innerHeight, t, kerf, lengthDividers, widthDividers, tabs: dividerTabs,
+    frame: { xStart: -Lo / 2 + t, yStart: -Wo / 2 + t, zBottom: t, lift: Ho },
   }));
+
+  // Dónde queda cada pieza en la caja armada (z = 0 es el piso). En los
+  // laterales y el fondo la cara dibujada (normal) mira hacia dentro, que es
+  // donde va el canal; por eso LEFT y RIGHT, que son espejo, llevan normales
+  // contrarias y cada uno cae del lado que le toca.
+  const V = (x, y, z) => ({ x, y, z });
+  const out = Math.max(Lo, Wo, wallHeight) / 2;
+  const place = (panel, { center, normal, up, group, thickness = t, open }) => {
+    panel.pose = makePose({
+      origin: rectOrigin({ center, width: panel.width, height: panel.height, normal, up }),
+      normal, up, group, thickness, open,
+    });
+  };
+  const neg = (n) => V(-n.x, -n.y, -n.z);
+  const byId = (id) => panels.find((q) => q.id === id);
+  const wall = (id, center, normal) => place(byId(id), {
+    center, normal, up: V(0, 0, 1), group: 'cuerpo', open: slide(neg(normal), out),
+  });
+  place(byId('bottom'), {
+    center: V(0, 0, t / 2), normal: V(0, 0, 1), up: V(0, 1, 0), group: 'cuerpo', open: slide(V(0, 0, -1), out),
+  });
+  wall('front', V(0, -Wo / 2 + t / 2, frontHeight / 2), V(0, 1, 0));
+  wall('back', V(0, Wo / 2 - t / 2, wallHeight / 2), V(0, -1, 0));
+  wall('left', V(-Lo / 2 + t / 2, 0, wallHeight / 2), V(1, 0, 0));
+  wall('right', V(Lo / 2 - t / 2, 0, wallHeight / 2), V(-1, 0, 0));
+  // La tapa mira hacia arriba: su y del dibujo crece hacia el fondo y la
+  // manija sale por el frente. No lleva rebajes, así que no le toca la regla
+  // de cara interior. Sale deslizándose hacia el frente.
+  place(lid, {
+    center: V(0, -Wo / 2 + lid.height / 2, grooveFloor + tl / 2),
+    normal: V(0, 0, 1), up: V(0, -1, 0), group: 'tapa', thickness: tl,
+    open: slide(V(0, -1, 0), lid.height + hd + 10),
+  });
 
   return {
     panels,

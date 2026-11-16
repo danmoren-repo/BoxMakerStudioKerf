@@ -1,4 +1,5 @@
 import { panelOutline, rectHoleFeature } from '../core/panel.js';
+import { makePose, rectOrigin, slide } from '../core/pose.js';
 import {
   autoTabWidthFromSpans,
   commonWarnings,
@@ -83,7 +84,7 @@ export function autoTabWidth(params) {
 export function buildSlidingSupportBox(params) {
   const { kerf, tabWidth } = params;
   const {
-    Lo, Wo, Ho, t, tl, h, hv, m, frontHeight, supportHeight, innerHeight,
+    Lo, Wo, Ho, t, tl, h, hv, m, railTop, frontHeight, supportHeight, innerHeight,
   } = slidingSupportHeights(params);
 
   const spanX = Lo - 2 * t; // entre laterales: BOTTOM/TOP <-> frente/fondo
@@ -293,7 +294,49 @@ export function buildSlidingSupportBox(params) {
   panels.push(...buildDividerPanels({
     spanX: usableX, spanY, dividerHeight: innerHeight, t, kerf, lengthDividers, widthDividers,
     tabs: dividerTabs,
+    frame: { xStart: -Lo / 2 + 2 * t, yStart: -Wo / 2 + t, zBottom: t, lift: Ho },
   }));
+
+  // Dónde queda cada pieza en la caja armada (z = 0 es el piso). Igual que en
+  // la deslizante de canal: LEFT y RIGHT son espejo, así que llevan normales
+  // contrarias y la cara dibujada de cada uno mira hacia dentro. Aquí no hay
+  // grabado, pero los soportes se pegan por dentro de cada lateral y salen con él.
+  const V = (x, y, z) => ({ x, y, z });
+  const out = Math.max(Lo, Wo, Ho) / 2;
+  const place = (panel, { center, normal, up, group, thickness = t, open }) => {
+    panel.pose = makePose({
+      origin: rectOrigin({ center, width: panel.width, height: panel.height, normal, up }),
+      normal, up, group, thickness, open,
+    });
+  };
+  const neg = (n) => V(-n.x, -n.y, -n.z);
+  const byId = (id) => panels.find((q) => q.id === id);
+  const wall = (id, center, normal) => place(byId(id), {
+    center, normal, up: V(0, 0, 1), group: 'cuerpo', open: slide(neg(normal), out),
+  });
+  place(byId('bottom'), {
+    center: V(0, 0, t / 2), normal: V(0, 0, 1), up: V(0, 1, 0), group: 'cuerpo', open: slide(V(0, 0, -1), out),
+  });
+  wall('front', V(0, -Wo / 2 + t / 2, frontHeight / 2), V(0, 1, 0));
+  wall('back', V(0, Wo / 2 - t / 2, Ho / 2), V(0, -1, 0));
+  wall('left', V(-Lo / 2 + t / 2, 0, Ho / 2), V(1, 0, 0));
+  wall('right', V(Lo / 2 - t / 2, 0, Ho / 2), V(-1, 0, 0));
+  // Soportes: pegados por dentro de cada lateral, apoyados en BOTTOM.
+  wall('support-1', V(-Lo / 2 + 1.5 * t, 0, t + supportHeight / 2), V(1, 0, 0));
+  wall('support-2', V(Lo / 2 - 1.5 * t, 0, t + supportHeight / 2), V(-1, 0, 0));
+  // TOP va pegada, pero el spec la pone en 'tapa': sube mientras la tapa sale
+  // por el frente, y no se cruzan. Su canto delantero queda a ras de FRONT.
+  place(byId('top'), {
+    center: V(0, -Wo / 2 + top.height / 2, Ho - t / 2),
+    normal: V(0, 0, -1), up: V(0, -1, 0), group: 'tapa', open: slide(V(0, 0, 1), Ho / 2),
+  });
+  // La tapa apoya sobre el canto de los soportes y sale por el frente; su
+  // manija asoma por delante de la caja.
+  place(lid, {
+    center: V(0, -Wo / 2 + lid.height / 2, railTop + tl / 2),
+    normal: V(0, 0, 1), up: V(0, -1, 0), group: 'tapa', thickness: tl,
+    open: slide(V(0, -1, 0), lid.height + hd + 10),
+  });
 
   return {
     panels,
